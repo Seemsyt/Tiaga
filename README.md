@@ -105,7 +105,9 @@ python -m tiaga
 # or
 python main.py
 ```
-
+```
+Or you can create you executable file running this script directly from your terminal
+```
 ### First Run
 
 1. You'll see a list of past sessions (if any) or a message that no sessions exist
