@@ -4,7 +4,7 @@ A powerful AI assistant CLI application built with LangGraph, featuring advanced
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-[![GitHub stars](https://img.shields.io/github/stars/seems-dev/tiaga?style=social)](https://github.com/yourusername/tiaga)
+[![GitHub stars](https://img.shields.io/github/stars/seemsyt/tiaga?style=social)](https://github.com/yourusername/tiaga)
 
 ## ✨ Features
 
