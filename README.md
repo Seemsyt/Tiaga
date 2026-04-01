@@ -1,5 +1,5 @@
 # Tiaga
-
+# Note Readme may not is up to date understand code structure to run it 
 A powerful AI assistant CLI application built with LangGraph, featuring advanced file operations, web search, and coding capabilities.
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
