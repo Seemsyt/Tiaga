@@ -2,9 +2,9 @@
 
 A powerful AI assistant CLI application built with LangGraph, featuring advanced file operations, web search, and coding capabilities.
 
-![Python](https://img.shields.io/badge/python-3.14+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-[![GitHub stars](https://img.shields.io/github/stars/yourusername/tiaga?style=social)](https://github.com/yourusername/tiaga)
+[![GitHub stars](https://img.shields.io/github/stars/seems-dev/tiaga?style=social)](https://github.com/yourusername/tiaga)
 
 ## ✨ Features
 
@@ -66,7 +66,7 @@ tiaga/
 
 1. **Clone the repository** (if from GitHub):
 ```bash
-git clone https://github.com/yourusername/tiaga.git
+git clone https://github.com/seems-dev/tiaga.git
 cd tiaga
 ```
 
