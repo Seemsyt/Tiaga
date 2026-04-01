@@ -267,4 +267,5 @@ If you encounter issues or have questions:
 
 ---
 
-**Made with ❤️ using Python, LangGraph, and AI**
+**Made with ❤️ using Python, LangGraph, and LLM models**
+**Author Seems Kushwaha & (seems-dev)**
