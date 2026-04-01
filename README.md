@@ -66,7 +66,7 @@ tiaga/
 
 1. **Clone the repository** (if from GitHub):
 ```bash
-git clone https://github.com/seems-dev/tiaga.git
+git clone https://github.com/seemsyt/tiaga.git
 cd tiaga
 ```
 
