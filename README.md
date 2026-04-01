@@ -59,7 +59,7 @@ tiaga/
 
 ### Prerequisites
 
-- Python 3.9 or higher(3.12 recommeded)
+- Python 3.9 or higher(3.12 recommended)
 - Git (optional)
 
 ### Setup Steps
