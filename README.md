@@ -1,271 +1,192 @@
 # Tiaga
-# Note Readme may not is up to date understand code structure to run it 
-A powerful AI assistant CLI application built with LangGraph, featuring advanced file operations, web search, and coding capabilities.
 
-![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-[![GitHub stars](https://img.shields.io/github/stars/seemsyt/tiaga?style=social)](https://github.com/seemsyt/tiaga)
+**Author:** seems kushwaha ([@seemsyt](https://github.com/seemsyt))
 
-## ✨ Features
+Tiaga is a terminal AI assistant with a Python backend, LangGraph agent loop, SQLite-backed session history, and an experimental Ink frontend.
 
-- **Interactive AI Chat**: Engage in natural conversations with an AI assistant powered by large language models
-- **Session Management**: Save, resume, and manage multiple conversation sessions with persistent history
-- **File Operations**: Read, write, create, delete, move files and folders directly through conversation
-- **Web Search**: Integrated DuckDuckGo search for up-to-date information
-- **Coding Assistant**: Specialized coding agent for programming tasks
-- **Beautiful Terminal UI**: Rich console interface with tables, panels, and colored output
-- **Persistent History**: SQLite-based checkpointing saves conversation context across sessions
-- **Tool Calling**: AI can intelligently decide when to use tools based on user requests
-- **Streaming Responses**: Real-time streaming of AI responses for smooth interaction
+## What is supported
 
-## 🏗️ Architecture
+- Python chat CLI via `python -m tiaga` or `tiaga`
+- Session persistence in `~/.tiaga/chat_history.db`
+- File tools, web search, YouTube transcript lookup, and a text-only coding helper
+- Ink frontend talking to the Python backend through `tiaga.bridge`
 
-Tiaga is built using modern Python libraries and follows a modular architecture:
+## Current frontend status
 
-```
-tiaga/
-├── main.py              # CLI interface, session management, UI
-├── graph.py             # LangGraph workflow definition, tool binding
-├── files_handling/
-│   └── file.py          # File operation tools (read, write, etc.)
-├── pyproject.toml       # Project metadata and dependencies
-├── .env                 # Environment variables (API keys)
-├── chat_history.db      # SQLite checkpoint storage
-├── test.py              # Test scripts
-└── README.md            # This file
-```
+- `tiaga.main` is the stable entrypoint today
+- `ink-cli/` is a real backend-connected rewrite, but it is still an active work-in-progress
+- `prompt_toolkit_tui.py` is legacy exploration, not the default app
 
-### How It Works
+## Installation
 
-1. **Main Loop** (`main.py`):
-   - Session selection (new or resume existing)
-   - User input collection with Rich prompts
-   - Streaming response display
-   - Error handling and graceful exit
-
-2. **Graph Workflow** (`graph.py`):
-   - `ChatState`: TypedDict holding conversation messages
-   - `chat_node`: LLM with bound tools
-   - `tools_node`: Executes tool calls
-   - Conditional routing: if tools needed → run tools → back to chat
-   - Checkpointing with `AsyncSqliteSaver` for persistence
-
-3. **Tools**:
-   - **Search**: `DuckDuckGoSearchResults` for web queries
-   - **Coding**: `coding_agent` for programming tasks
-   - **File Operations**: 11 file system tools (read_file, write_file, create_folder, etc.)
-
-## 📦 Installation
-
-### Prerequisites
-
-- Python 3.9 or higher(3.12 recommended)
-- Git (optional)
-
-### Setup Steps
-
-1. **Clone the repository** (if from GitHub):
-```bash
-git clone https://github.com/seemsyt/tiaga.git
-cd tiaga
-```
-
-2. **Create virtual environment** (recommended):
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-3. **Install dependencies**:
-```bash
+source .venv/bin/activate
 pip install -e .
 ```
 
-Or install manually:
-```bash
-pip install ddgs duckduckgo-search fastapi langchain langchain-community \
-    langchain-openai langchain-tavily langgraph langgraph-checkpoint-sqlite \
-    mcp tavily-python typer rich python-dotenv aiosqlite
-```
+Create a `.env` file in the repo root:
 
-4. **Configure environment variables**:
-Create a `.env` file in the project root:
 ```env
 OPEN_ROUTER_API_KEY=your_api_key_here
 BASE_URL=https://openrouter.ai/api/v1
 ```
 
-You can get an API key from [OpenRouter](https://openrouter.ai/).
+## Running the Python CLI
 
-## 🚀 Usage
-
-Start the interactive chat:
 ```bash
 python -m tiaga
-# or
-python main.py
-```
-```
-Or you can create you executable file running this script directly from your terminal
-```
-### First Run
-
-1. You'll see a list of past sessions (if any) or a message that no sessions exist
-2. Enter a new session name or pick a number to resume
-3. Start typing your messages!
-
-### Example Interactions
-
-```
-Session: my_first_chat
-you: What's the current weather in London?
-assistant: [Uses search tool] The current weather in London is...
-
-you: Create a file called 'todo.txt' with content: "Buy groceries"
-assistant: [Uses write_file] Written: '/path/to/todo.txt'
-
-you: Read that file
-assistant: [Uses read_file] Content: Buy groceries
-
-you: Write a Python function to calculate factorial
-assistant: [Uses coding_agent] Here's a factorial function...
 ```
 
-### Controls
+Or, after install:
 
-- Type `exit`, `quit`, or `bye` to end the session
-- Type `help` (future feature) for command list
-- Use Ctrl+C to interrupt
-- Sessions are automatically saved; resume anytime
-
-## 🔧 Configuration
-
-### Changing the LLM Model
-
-Edit `graph.py` to use a different model:
-
-```python
-model = ChatOpenAI(
-    model='anthropic/claude-3-haiku',  # Change model
-    api_key=getenv("OPEN_ROUTER_API_KEY"),
-    base_url=getenv("BASE_URL"),
-    streaming=True,
-    temperature=0.7
-)
-```
-
-See available models on [OpenRouter](https://openrouter.ai/models).
-
-### Adjusting System Prompt
-
-Modify the `SYSTEM_PROMPT` in `graph.py` to change assistant behavior:
-
-```python
-SYSTEM_PROMPT = SystemMessage(
-    content="""
-You are a specialized coding assistant.
-Always provide detailed explanations.
-...
-"""
-)
-```
-
-### Adding Custom Tools
-
-Add new tools to the `tools` list in `graph.py`:
-
-```python
-@tool
-def my_custom_tool(param: str) -> str:
-    """Tool description"""
-    # Implementation
-    return result
-
-tools = [search_tool, coding_agent, my_custom_tool, ...]
-```
-
-## 🧪 Testing
-
-Run the test script:
 ```bash
-python test.py
+tiaga
 ```
 
-## 📁 Project Structure
+## Running the Ink CLI
 
+The Ink frontend needs Node.js and npm installed locally.
+
+```bash
+cd ink-cli
+npm install
+npm run build
+node dist/main.js
 ```
-├── .venv/                    # Virtual environment (gitignored)
-├── __pycache__/              # Python cache (gitignored)
-├── cli interfance manger/    # (Legacy/organizational folder)
-│   └── hello.py
-├── files_handling/           # File operation tools
-│   ├── __pycache__/
-│   └── file.py
-├── .env                      # Environment variables (gitignored)
+
+During development:
+
+```bash
+cd ink-cli
+npm install
+npm run dev
+```
+
+## Testing
+
+Use this checklist after setup.
+
+### 1. Backend install/import smoke test
+
+```bash
+pip install -e .
+python -c "from tiaga.chat_engine import ChatEngine; print(ChatEngine()._normalize_thread_id(''))"
+python -c "from tiaga.graph import model; print(type(model).__name__)"
+```
+
+Expected:
+
+- first command prints `session`
+- second command prints `ChatOpenAI`
+
+### 2. Python syntax check
+
+```bash
+python -m compileall tiaga
+```
+
+### 3. Bridge smoke tests
+
+If you want isolated tests that do not touch your real session DB, set `TIAGA_DB_PATH` to a temporary file.
+
+List sessions:
+
+```bash
+env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"list_sessions\"}\n' | python -m tiaga.bridge"
+```
+
+Load one session history:
+
+```bash
+env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"get_history\",\"thread_id\":\"session-name\"}\n' | python -m tiaga.bridge"
+```
+
+Stream one chat turn:
+
+```bash
+env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"chat\",\"thread_id\":\"smoke-test\",\"message\":\"say hello briefly\"}\n' | python -m tiaga.bridge"
+```
+
+Expected:
+
+- JSON output
+- chat requests end with `{"type": "done"}`
+- no permission prompt events
+- `get_history` only returns messages for a session that already exists
+
+### 4. End-to-end Python CLI test
+
+Run:
+
+```bash
+python -m tiaga
+```
+
+Then try:
+
+- `what files are in the current directory?`
+- `create a folder named tmp-demo`
+- `delete the folder tmp-demo`
+
+### 5. Ink frontend test
+
+After Node.js is installed:
+
+```bash
+cd ink-cli
+npm install
+npm run build
+node dist/main.js
+```
+
+Then verify:
+
+- existing sessions load instead of mock sessions
+- selecting a saved session loads history
+- sending a message streams assistant text
+- tool activity appears inline
+
+## Project layout
+
+```text
+.
+├── tiaga/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── bridge.py
+│   ├── chat_engine.py
+│   ├── graph.py
+│   ├── main.py
+│   ├── prompt_toolkit_tui.py
+│   ├── stdio_bridge.py
+│   ├── utils.py
+│   ├── youtube_scrapping.py
+│   └── files_handling/
+│       └── file.py
+├── ink-cli/
+│   ├── src/
+│   │   ├── commands/
+│   │   ├── components/
+│   │   ├── engine/
+│   │   ├── main.tsx
+│   │   └── types.ts
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── tsup.config.ts
+├── .venv/
+├── dist/
+├── tiaga.egg-info/
+├── .git/
+├── .codex/
+├── .env
 ├── .gitignore
 ├── .python-version
-├── README.md                 # This file
-├── chat_history.db           # SQLite checkpoint storage (auto-created)
-├── chat_history.db-shm
-├── chat_history.db-wal
-├── graph.py                  # LangGraph workflow
-├── main.py                   # CLI entry point
-├── pyproject.toml            # Project config
+├── README.md
+├── package-lock.json
+├── pyproject.toml
 ├── test.html
 ├── test.py
+├── test_tui.py
 └── uv.lock
 ```
-
-## 🛠️ Development
-
-### Adding New File Tools
-
-1. Open `files_handling/file.py`
-2. Decorate a function with `@tool`
-3. Add proper docstring (used by AI to understand tool)
-4. Import and add to `tools` list in `graph.py`
-
-### Debugging
-
-- Check `.env` for API keys
-- Ensure `chat_history.db` is writable
-- Use `file_tree()` tool to explore project structure
-- View logs in terminal for errors
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- [LangChain](https://github.com/langchain-ai/langchain) & [LangGraph](https://github.com/langchain-ai/langgraph)
-- [OpenRouter](https://openrouter.ai/) for unified API access
-- [Rich](https://github.com/Textualize/rich) for beautiful terminal output
-- [Typer](https://typer.tiangolo.com/) for CLI interface
-
-## 📮 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-For major changes, please open an issue first to discuss.
-
-## 📧 Support
-
-If you encounter issues or have questions:
-
-1. Check the `test.py` for usage examples
-2. Review tool documentation in `files_handling/file.py`
-3. Open an issue on GitHub with:
-   - Python version
-   - Error message
-   - Steps to reproduce
-
----
-
-**Made with ❤️ using Python, LangGraph, and LLM models**
-**Author Seems Kushwaha & (seems-dev)**
