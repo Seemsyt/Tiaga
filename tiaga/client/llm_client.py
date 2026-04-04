@@ -59,6 +59,8 @@ class LLM_client:
 
 
     async def _stream_response(self,client:AsyncOpenAI,kwargs:dict[str,Any])->AsyncGenerator[StreamEvent]:
+        response = None
+        usage = None
         response = await client.chat.completions.create(**kwargs)
         async for chunk in response:
                 if hasattr(chunk,'usage') and chunk.usage:
@@ -91,6 +93,7 @@ class LLM_client:
         choice = response.choices[0]
         message = choice.message
         text_delta = None
+        usage = None
         if message.content:
             text_delta = TextDelta(message.content)
         if response.usage:

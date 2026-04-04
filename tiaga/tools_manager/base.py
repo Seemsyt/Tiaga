@@ -13,7 +13,7 @@ class ToolInvocation:
     cwd : Path
 @dataclass
 class ToolResult:
-    success:Tool
+    success:bool
     output:str
     error:str|None = None
     metadata: dict[str,Any] = field(default_factory=dict)
@@ -23,6 +23,12 @@ class ToolResult:
         cls,error:str,output:str = ""
     ):
         return cls(success=False,output=output,error=error)
+    @classmethod
+    def succes_result(
+        cls,output:str = "",
+        **kwargs:Any
+    ):
+        return cls(success=True,output=output,error=None,**kwargs)
 
 @dataclass
 class ToolConfirmation:
@@ -40,7 +46,7 @@ class Tool_kind(str,Enum):
 class Tool(ABC):
     name:str ="base_tool"
     description:str = "Base Tool"
-    tool_kind:Tool_kind.READ
+    tool_kind:Tool_kind=Tool_kind.READ
 
     @property
     def schema(self) -> dict[str,Any] | type['BaseModel']:
@@ -56,7 +62,7 @@ class Tool(ABC):
                 schema(**params)
             except ValidationError as e :
                 errors = []
-                for error in e.errors:
+                for error in e.errors():
                     field = '.'.join(str(x) for x in error.get('loc',[]))
                     msg = error.get('msg',"Validation Error")
                     errors.append(f"parameter :{field}:{msg}")
@@ -95,9 +101,9 @@ class Tool(ABC):
         if isinstance(schema,dict):
             result = {"name":self.name,"description":self.description}
             if "parameters" in schema:
-                result['parameter'] = schema['parameter']
+                result['parameters'] = schema['parameters']
             else :
-                 result["parameter"] = schema
+                 result["parameters"] = schema
             return result
         else:
             raise ValueError(f"invalid schema type for tool{self.name} and {self.schema}")

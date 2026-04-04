@@ -34,9 +34,9 @@ _console :Console|None = None
 
 def _get_console():
     global _console
-    if _console == None:
+    if _console is None:
         _console = Console(theme=AGENT_THEME,highlight=False)
-        return _console
+    return _console
     
 class TUI:
     def __init__(self,console:Console|None = None)->None:

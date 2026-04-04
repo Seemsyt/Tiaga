@@ -1,9 +1,10 @@
+import sys
 from typing import Any
-from ui.render import TUI,_get_console
+from .ui.render import TUI,_get_console
 import click
 import asyncio
-from client.llm_client import LLM_client
-from agent.agent import Agent,AgentEventType
+from .client.llm_client import LLM_client
+from .agent.agent import Agent,AgentEventType
 console = _get_console()
 class CLI():
     def __init__(self):
@@ -60,7 +61,7 @@ def main(prompt:str|None = None):
     if prompt:
         result = asyncio.run(cli.run_single(prompt))
         if result is None:
-            SystemExit(1)
+            raise sys.exit(1)
 
 
 if __name__ == "__main__":
