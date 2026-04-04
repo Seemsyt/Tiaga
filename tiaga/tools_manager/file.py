@@ -5,7 +5,6 @@ import shutil
 
 # ── Read ───────────────────────────────────────────────────────────────────────
 
-@tool
 def read_file(path: str) -> str:
     """Read and return the contents of a file. Use absolute or relative paths."""
     p = Path(path).expanduser().resolve()
@@ -21,7 +20,6 @@ def read_file(path: str) -> str:
 
 # ── Write / Create ─────────────────────────────────────────────────────────────
 
-@tool
 def write_file(path: str, content: str) -> str:
     """
     Write content to a file. Creates the file and any missing parent
@@ -33,8 +31,6 @@ def write_file(path: str, content: str) -> str:
     p.write_text(content)
     return f"Written: '{p}'"
 
-
-@tool
 def create_folder(path: str) -> str:
     """Create a folder and any missing parents."""
     p = Path(path).expanduser().resolve()
@@ -46,7 +42,6 @@ def create_folder(path: str) -> str:
 
 # ── Edit ───────────────────────────────────────────────────────────────────────
 
-@tool
 def replace_in_file(path: str, old: str, new: str) -> str:
     """
     Replace the first occurrence of `old` with `new` inside a file.
@@ -62,8 +57,6 @@ def replace_in_file(path: str, old: str, new: str) -> str:
     p.write_text(text.replace(old, new, 1))
     return f"Replaced in '{p}'"
 
-
-@tool
 def append_to_file(path: str, content: str) -> str:
     """Append content to the end of an existing file."""
     p = Path(path).expanduser().resolve()
@@ -76,7 +69,7 @@ def append_to_file(path: str, content: str) -> str:
 
 # ── Delete ─────────────────────────────────────────────────────────────────────
 
-@tool
+
 def delete_item(path: str) -> str:
     """Delete a file or folder (recursive)."""
     p = Path(path).expanduser().resolve()
@@ -91,7 +84,6 @@ def delete_item(path: str) -> str:
 
 # ── Navigate ───────────────────────────────────────────────────────────────────
 
-@tool
 def list_files(path: str = ".") -> str:
     """List files and folders at a path. Defaults to current directory."""
     p = Path(path).expanduser().resolve()
@@ -104,8 +96,6 @@ def list_files(path: str = ".") -> str:
         return "Empty directory"
     return "\n".join(f"{'[file]' if i.is_file() else '[dir] '} {i.name}" for i in items)
 
-
-@tool
 def file_tree(path: str = ".", depth: int = 3) -> str:
     """
     Return an indented tree of the directory. Defaults to current directory.
@@ -131,7 +121,6 @@ def file_tree(path: str = ".", depth: int = 3) -> str:
     return "\n".join([str(p)] + _tree(p, "", depth))
 
 
-@tool
 def move_item(src: str, dst: str) -> str:
     """Move or rename a file or folder."""
     s = Path(src).expanduser().resolve()
@@ -143,8 +132,46 @@ def move_item(src: str, dst: str) -> str:
     return f"Moved '{s}' → '{d}'"
 
 
-@tool
 def get_cwd() -> str:
     """Return the current working directory. Call this first if the user
     refers to files without giving an absolute path."""
     return str(Path.cwd())
+
+
+class FileService:
+
+    @staticmethod
+    def read(path: str):
+        return read_file(path)
+
+    @staticmethod
+    def write(path: str, content: str):
+        return write_file(path, content)
+
+    @staticmethod
+    def append(path: str, content: str):
+        return append_to_file(path, content)
+
+    @staticmethod
+    def delete(path: str):
+        return delete_item(path)
+
+    @staticmethod
+    def move(src: str, dest: str):
+        return move_item(src, dest)
+
+    @staticmethod
+    def list(path: str = "."):
+        return list_files(path)
+
+    @staticmethod
+    def tree(path: str = "."):
+        return file_tree(path)
+
+    @staticmethod
+    def mkdir(path: str):
+        return create_folder(path)
+
+    @staticmethod
+    def cwd():
+        return get_cwd()

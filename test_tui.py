@@ -46,7 +46,7 @@ def test_imports():
         return False
     
     try:
-        from tiaga import utils
+        from tiaga import utils_file
         print("✓ tiaga.utils imports")
     except Exception as e:
         print(f"✗ Failed to import tiaga.utils: {e}")
