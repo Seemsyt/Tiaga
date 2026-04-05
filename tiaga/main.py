@@ -1,10 +1,10 @@
 import sys
 from typing import Any
-from .ui.render import TUI,_get_console
+from ui.render import TUI,_get_console
 import click
 import asyncio
-from .client.llm_client import LLM_client
-from .agent.agent import Agent,AgentEventType
+from client.llm_client import LLM_client
+from agent.agent import Agent,AgentEventType
 console = _get_console()
 class CLI():
     def __init__(self):
@@ -22,7 +22,7 @@ class CLI():
             return None
         final_response = None
         async for event in self.agent.run(message):
-
+            print(event)
             
             if event.type == AgentEventType.TEXT_DELTA:
 

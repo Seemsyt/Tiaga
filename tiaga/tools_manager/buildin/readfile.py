@@ -1,7 +1,7 @@
 from pydantic import BaseModel,Field
-from ...utlis.path import is_binary, resolve_path
+from utlis.path import is_binary, resolve_path
 from ..base import Tool,Tool_kind, ToolInvocation,ToolResult
-from ...context.text import calculate_token,truncate_text
+from context.text import calculate_token,truncate_text
 class ReadFileParams(BaseModel):
     path:str = Field(...,description="This the path to the file which can be read(it can be related to working directory  path or absolute path)(this is required)")
 
@@ -19,8 +19,8 @@ class ReadFileTool(Tool):
     MAX_OUTPUT = 25000
     schema = ReadFileParams
     MAX_SIZE = 1024*1024*10
-    truncated = False
     async def execute(self, invocation:ToolInvocation):
+        truncated = False
         params = ReadFileParams(**invocation.params)
         path = resolve_path(invocation.cwd,params.path)
 
@@ -46,7 +46,7 @@ class ReadFileTool(Tool):
 
             if total_lines == 0 :
                 return ToolResult.succes_result(output="file is empty",kwargs={
-                    "metadat":{
+                    "metadata":{
                         "lines":0,
                     }
                 })
@@ -59,27 +59,32 @@ class ReadFileTool(Tool):
             selected_lines = lines[start_idx:end_idx]
             formated_lines = []
             for i,line in enumerate(selected_lines,start=start_idx+1):
-                formated_lines.append(f'{1:6}|lines{line}')
+                formated_lines.append(f"{i:6}| {line}")
             
             output = "\n".join(formated_lines)
-            token_count = calculate_token(output)
+            token_count = calculate_token(output, None)
             if token_count > self.MAX_OUTPUT :
-                output = truncate_text(output,self.MAX_OUTPUT,suffix="\n...[truncated]")
-                self.truncated = True
+                output = truncate_text(
+                    output,
+                    model="gpt-4o-mini",
+                    max_tokens=self.MAX_OUTPUT,
+                    suffix="\n...[truncated]",
+                )
+                truncated = True
             metadata_lines = []
             if start_idx >0 and end_idx<total_lines:
-                metadata_lines.append(f"showing lines from {start_idx+1} to{end_idx}") 
+                metadata_lines.append(f"showing lines from {start_idx+1} to {end_idx}") 
             if metadata_lines:
-                header = "|".join(metadata_lines)+"\nn"
-                output = output+ header
+                header = "|".join(metadata_lines) + "\n"
+                output = header + output
 
             return ToolResult.succes_result(
                 output=output,
-                truncated = self.truncated,
+                truncated=truncated,
                 metadata = {
                     "path":str(path),
                     "total_lines":total_lines,
-                    "shown_start":start_idx,
+                    "shown_start":start_idx + 1,
                     "shown_end":end_idx
 
                 }
@@ -93,4 +98,3 @@ class ReadFileTool(Tool):
 
         
         
-
