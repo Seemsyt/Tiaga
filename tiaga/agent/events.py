@@ -69,7 +69,7 @@ class AgentEvent:
               data={
                    "call_id":call_id,
                    "name":name,
-                   "succes":result.success,
+                   "success":result.success,
                    "error":result.error,
                    "output":result.output,
                    "metadata":result.metadata,
