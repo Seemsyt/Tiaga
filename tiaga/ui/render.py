@@ -10,6 +10,7 @@ from rich.rule import Rule
 from rich.theme import Theme
 from rich import box
 import json
+from tiaga.config.config import Config
 from tiaga.context.text import truncate_text
 from tiaga.utlis.path import resolve_path,display_path_relative_to_cwd
 import re
@@ -83,16 +84,32 @@ def _get_console():
     return _console
     
 class TUI:
-    def __init__(self,console:Console|None = None)->None:
+    def __init__(self,console:Console|None,config:Config)->None:
        self.console = console or _get_console()
        self.assistance_stream_open = False
        self.tool_args_by_call_id:dict[str,dict[str,Any]] = {}
-       self.cwd = Path.cwd()
+       self.config = config
+       self.cwd = self.config.cwd
+       
 
     def begin_streaming(self):
         self.console.print()
         self.console.print(Rule(Text("Assistance",style='assistant')))
         self.assistance_stream_open = True
+
+    def print_welcome(self, title: str, lines: list[str]) -> None:
+        body = "\n".join(lines)
+        self.console.print(
+            Panel(
+                Text(body, style="code"),
+                title=Text(title, style="highlight"),
+                title_align="left",
+                border_style="border",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
 
     def _format_value(self,value):
         if isinstance(value, (dict, list)):
@@ -145,7 +162,7 @@ class TUI:
             ("⬤ ","muted"),
             (name,"tool"),
             (" ","muted"),
-            (f"#{call_id[:8]}","muted")
+            (f"#{str(call_id or '')[:8]}","muted")
         )
         display_args = dict(arguments)
         for key in ("path","cwd"):
@@ -159,7 +176,7 @@ class TUI:
             subtitle=Text(f"running",style="muted"),
             subtitle_align='right',
             box=box.ROUNDED,
-            padding={1,2},
+            padding=(1,2), 
         )
         self.console.print()
         self.console.print(panel)
@@ -200,7 +217,7 @@ class TUI:
         (f"{status_icon}",status_style),
         (name,"tool"),
         (" ","muted"),
-        (f"#{call_id[:8]}","muted")
+        (f"#{str(call_id or '')[:8]}","muted")
         )
         primary_path = None
         blocks = []
@@ -251,7 +268,7 @@ class TUI:
             subtitle=Text(f"done" if success else "failed",style=status_style),
             subtitle_align='right',
             box=box.ROUNDED,
-            padding={1,2},
+            padding=(1,2), 
         )
         self.console.print()
         self.console.print(panel)

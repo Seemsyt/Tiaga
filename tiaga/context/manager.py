@@ -1,9 +1,10 @@
 
 from typing import Any
+from tiaga.config.config import Config
 
 from .text import calculate_token
 
-# from .prompts import get_system_prompt
+from .prompts import get_system_prompt
 from dataclasses import dataclass, field
 
 @dataclass
@@ -27,9 +28,10 @@ class MessageItem:
         return result
 
 class ContextManager:
-    def __init__(self):
-        self.system_prompt = None#get_system_prompt()
-        self.model_name = "qwen/qwen3.6-plus:free"
+    def __init__(self, config: Config):
+        self.config = config
+        self.system_prompt = get_system_prompt(config)
+        self.model_name = config.model_name or "qwen/qwen3.6-plus:free"
         self.messages:list[MessageItem] = []
     
 
