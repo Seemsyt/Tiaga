@@ -5,8 +5,8 @@ from pydantic import BaseModel,Field
 
 class ModelConfig(BaseModel):
     name:str = "stepfun/step-3.5-flash:free"
-    temprature:float = Field(default=1,le=2.00,gt=0.00)
-    cotext_window:int|None = 32000
+    temperature:float = Field(default=1,le=2.00,gt=0.00)
+    context_window:int|None = 32000
 
 class Config(BaseModel):
     model:ModelConfig = Field(default_factory=ModelConfig)
@@ -35,12 +35,12 @@ class Config(BaseModel):
         self.model.name = value
 
     @property
-    def temprature(self)->float:
-        return self.model.temprature
+    def temperature(self)->float:
+        return self.model.temperature
     
-    @temprature.setter
+    @temperature.setter
     def temprature(self,value)->str|None:
-        self.model.temprature = value
+        self.model.temperature = value
 
     
     def validate(self):

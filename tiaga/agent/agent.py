@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 from client.llm_client import LLM_client
 from client.response import StreamEventType, ToolCall, ToolResultMessage  # Fix typo: reaponse -> response
+from tiaga.agent.session import Session
 from tiaga.tools_manager.registry import create_default_registry
 from tiaga.config.config import Config
 from .events import AgentEvent, AgentEventType
@@ -12,15 +13,14 @@ from context.manager import ContextManager
 
 class Agent:
     def __init__(self, config: Config):
-        self.client = LLM_client(config)
+     
         self.usage = None
-        self.context_manager = ContextManager(config)
-        self.tool_registry = create_default_registry()
         self.config = config
+        self.session:Session|None = Session(self.config)
 
     async def run(self, message: str):
         yield AgentEvent.agent_start(messages=message)
-        self.context_manager.add_user_message(message)
+        self.session.context_manager.add_user_message(message)
         final_response = None
 
         async for event in self._agentic_loop():
@@ -34,12 +34,12 @@ class Agent:
         max_turn = self.config.max_turns
         for turn_num in range(max_turn):
 
-            tool_schema = self.tool_registry.get_schemas()
+            tool_schema = self.session.tool_registry.get_schemas()
             response_text = ""
             tools_calls: list[ToolCall] = []
 
             async for event in self.client.chat_completion(
-                message=self.context_manager.get_messages(),
+                message=self.session.context_manager.get_messages(),
                 tools=tool_schema if tool_schema else None,
                 stream=True,
             ):
@@ -75,7 +75,7 @@ class Agent:
                 )
 
             if response_text or assistant_tool_calls:
-                self.context_manager.add_assistant_message(
+                self.session.context_manager.add_assistant_message(
                     response_text or "",
                     tool_calls=assistant_tool_calls,
                 )
@@ -96,7 +96,7 @@ class Agent:
                         arguments=tool_call.arguments,
                     )
 
-                    result = await self.tool_registry.invoke(
+                    result = await self.session.tool_registry.invoke(
                         tool_call.name,
                         tool_call.arguments,
                         self.config.cwd,
@@ -117,19 +117,18 @@ class Agent:
                     )
 
                 for tool_result in tool_call_results:
-                    self.context_manager.add_tool_message(
+                    self.session.context_manager.add_tool_message(
                         tool_result.tool_call_id,   # Fix: was tool_result.call_id (wrong attribute)
                         tool_result.content,
                     )
 
-                # Fix: recurse so the LLM can respond to tool results
-                async for event in self._agentic_loop():
-                    yield event
+               
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.client:
-            await self.client.close_client()
-            self.client = None
+        if self.session.client:
+            await self.session.client.close_client()
+            self.session.client = None
+            self.session = None
