@@ -7,10 +7,42 @@ from pydantic import BaseModel, ValidationError
 from enum import Enum
 from pathlib import Path
 from pydantic.json_schema import model_json_schema
+import difflib
+
+from tiaga.config.config import Config
 @dataclass
 class ToolInvocation:
     params:dict[str,Any]
     cwd : Path
+
+@dataclass
+class FileDiff:
+    path:str
+    old_content:str
+    new_content:str
+
+    is_new_file:bool = False
+    is_deletion:bool = False
+
+    def create_diff(self)->str:
+        old_lines = self.old_content.splitlines(keepends=True)
+        new_lines = self.new_content.splitlines(keepends=True)
+
+        if old_lines and not old_lines[-1].endswith("\n"):
+            old_lines[-1] += '\n'
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += '\n'
+        old_name = "/dev/null" if self.is_new_file else str(self.path)
+        new_name = "/dev/null" if self.is_deletion else str(self.path)
+
+        diff = difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=old_name,
+            tofile=new_name,
+        )
+        return ''.join(diff)
+        
 @dataclass
 class ToolResult:
     success:bool
@@ -19,7 +51,7 @@ class ToolResult:
     metadata: dict[str,Any] = field(default_factory=dict)
 
     truncated: bool = False
-    diff:  None = None
+    diff:FileDiff|None = None
     exit_code: int | None = None
 
     @classmethod
@@ -28,11 +60,12 @@ class ToolResult:
     ):
         return cls(success=False,output=output,error=error)
     @classmethod
-    def succes_result(
-        cls,output:str = "",
-        **kwargs:Any
-    ):
-        return cls(success=True,output=output,error=None,**kwargs)
+    def succes_result(cls, output: str = "", **kwargs: Any):
+        return cls(
+        success=True,
+         output=output,
+        **kwargs
+    )
     
     def to_model_output(self)->str:
         if self.success:
@@ -57,6 +90,9 @@ class Tool(ABC):
     name:str ="base_tool"
     description:str = "Base Tool"
     tool_kind:Tool_kind=Tool_kind.READ
+
+    def __init__(self,config:Config):
+        self.config = config
 
     @property
     def schema(self) -> dict[str,Any] | type['BaseModel']:

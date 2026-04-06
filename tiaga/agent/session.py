@@ -11,16 +11,16 @@ class Session:
     def __init__(self,config:Config):
         self.config = config
         self.client = LLM_client(config)
-        self.tool_registry = create_default_registry()
+        self.tool_registry = create_default_registry(config)
         self.context_manager = ContextManager(config)
         self.session_id = str(uuid.uuid4())
         self.created = datetime.now()
         self.updated = datetime.now()
         self._turn_count = 0 
 
-        def increament_turn(self)->int:
-            self._turn_count +=1
-            self.updated = datetime.now()
+    def increament_turn(self)->int:
+        self._turn_count +=1
+        self.updated = datetime.now()
 
-            return self._turn_count
+        return self._turn_count
         

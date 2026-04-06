@@ -2,13 +2,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import AsyncGenerator
-from client.llm_client import LLM_client
-from client.response import StreamEventType, ToolCall, ToolResultMessage  # Fix typo: reaponse -> response
+from tiaga.client.llm_client import LLM_client
+from tiaga.client.response import StreamEventType, ToolCall, ToolResultMessage  # Fix typo: reaponse -> response
 from tiaga.agent.session import Session
 from tiaga.tools_manager.registry import create_default_registry
 from tiaga.config.config import Config
 from .events import AgentEvent, AgentEventType
-from context.manager import ContextManager
+from tiaga.context.manager import ContextManager
 
 
 class Agent:
@@ -33,12 +33,12 @@ class Agent:
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent]:
         max_turn = self.config.max_turns
         for turn_num in range(max_turn):
-
+            self.session.increament_turn()
             tool_schema = self.session.tool_registry.get_schemas()
             response_text = ""
             tools_calls: list[ToolCall] = []
 
-            async for event in self.client.chat_completion(
+            async for event in self.session.client.chat_completion(
                 message=self.session.context_manager.get_messages(),
                 tools=tool_schema if tool_schema else None,
                 stream=True,
@@ -107,6 +107,7 @@ class Agent:
                         tool_call.name,
                         result,
                     )
+
 
                     tool_call_results.append(
                         ToolResultMessage(

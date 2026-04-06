@@ -3,11 +3,11 @@ import sys
 from typing import Any
 from tiaga.config.loader import load_config
 from tiaga.utlis.erors import ConfigError
-from ui.render import TUI,_get_console
+from tiaga.ui.render import TUI,_get_console
 import click
 import asyncio
-from client.llm_client import LLM_client
-from agent.agent import Agent,AgentEventType
+from tiaga.client.llm_client import LLM_client
+from tiaga.agent.agent import Agent,AgentEventType
 console = _get_console()
 
 
@@ -20,7 +20,7 @@ class CLI():
         self.assistant_streaming = False
 
     def get_tool_kind(self,tool_name):
-        tool= self.agent.tool_registry.get(tool_name)
+        tool= self.agent.session.tool_registry.get(tool_name)
         if tool:
             tool_kind= tool.tool_kind.value
             return tool_kind
@@ -30,7 +30,7 @@ class CLI():
         self.tui.print_welcome('Tiaga',lines=[
             f"model:{self.config.model_name} ",
             f"cwd:{self.config.cwd} ",
-            f"command: /help /exit /config /appoval /model"
+            f"command: /help /exit /config /approval /model"
         ])
         async with Agent(self.config) as agent:
             self.agent = agent
@@ -62,6 +62,7 @@ class CLI():
         final_response = None
         async for event in self.agent.run(message):
 
+
             if event.type == AgentEventType.TOOL_CALL_START:
                 tool_name = event.data.get("name","unknown")
                 tool_kind = self.get_tool_kind(tool_name=tool_name)
@@ -78,7 +79,9 @@ class CLI():
                     event.data.get("success",False),
                     event.data.get("output",""),
                     event.data.get("metadata",{}),
-                    event.data.get("truncated","False")
+                    event.data.get("diff"),
+                    event.data.get("truncated","False"),
+                    event.data.get("exit_code")
                 )
 
             elif event.type == AgentEventType.TEXT_DELTA:

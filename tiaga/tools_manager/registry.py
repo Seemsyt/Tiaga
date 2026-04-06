@@ -1,7 +1,8 @@
 import logging
 from typing import Any
-from tools_manager.buildin import get_all_builtin_tool
-from tools_manager.base import Tool, ToolResult,ToolInvocation
+from tiaga.config.config import Config
+from tiaga.tools_manager.buildin import get_all_builtin_tool
+from tiaga.tools_manager.base import Tool, ToolResult,ToolInvocation
 
 logger  = logging.getLogger(__name__)
 
@@ -46,15 +47,14 @@ class ToolRegistry:
             return {
                 f"internal error{str(e)} for {name}"
                 }
-def create_default_registry() -> ToolRegistry:
+def create_default_registry(config:Config) -> ToolRegistry:
     registry = ToolRegistry()
     for tool_cls in get_all_builtin_tool():
-        registry.register(tool_cls())
+        registry.register(tool_cls(config))
 
     return registry
 
 
 
         
-
 

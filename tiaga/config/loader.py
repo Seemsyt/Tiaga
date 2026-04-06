@@ -72,16 +72,20 @@ def load_config(cwd:Path|None)-> Config:
                 cause=e,
             ) from e
     project_path = _get_project_config(cwd=cwd)
+
     if project_path:
         try:
             project_config_dict = _parse_toml(project_path)
+
             config_dicts = _merge_dicts(config_dicts,project_config_dict)
+
         except ConfigError as e:
             raise ConfigError(
                 "Invalid project config",
                 config_file=str(project_path),
                 cause=e,
             ) from e
+
     if  "cwd" not in config_dicts :
         config_dicts["cwd"] = cwd
 
@@ -93,7 +97,7 @@ def load_config(cwd:Path|None)-> Config:
         config = Config(**config_dicts)
     except Exception as e:
         raise ConfigError(f"Invalid configuration {e}") from e
-    errors = config.validate()
+    errors = config.validate_config()
     if errors:
         raise ConfigError("Invalid configuration", details={"errors": errors})
     return config

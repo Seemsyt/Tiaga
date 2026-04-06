@@ -1,7 +1,7 @@
 from pydantic import BaseModel,Field
-from utlis.path import is_binary, resolve_path
+from tiaga.utlis.path import is_binary, resolve_path
 from ..base import Tool,Tool_kind, ToolInvocation,ToolResult
-from context.text import calculate_token,truncate_text
+from tiaga.context.text import calculate_token,truncate_text
 class ReadFileParams(BaseModel):
     path:str = Field(...,description="This the path to the file which can be read(it can be related to working directory  path or absolute path)(this is required)")
 

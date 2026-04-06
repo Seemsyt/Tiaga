@@ -120,6 +120,9 @@ class TUI:
     def _ordered_arguments(self, tool_name: str, args: dict[str, Any]) -> list[tuple]:
         _preferred_order = {
         "read_file": ["path", "offset", "limit"],
+        "write_file":["path",'create_directoies',"content"],
+        "edit":["path","replace_all","old_string","new_string"],
+        "shell": ["command", "timeout", "cwd"],
             }
 
         preferred = _preferred_order.get(tool_name, [])
@@ -146,6 +149,11 @@ class TUI:
         table.add_column(style="code",overflow="fold")
 
         for key , value in self._ordered_arguments(tool_name=table_name,args=args):
+            if isinstance(value,str):
+                if key in {"content","old_string","new_string"}:
+                    line_count = len(value.splitlines()) or 0
+                    byte_count = len(value.encode("utf-8",errors="replace")) or 0
+                    value = f"{line_count} lines ⦁ {byte_count} bytes"
             table.add_row(str(key), self._format_value(value))
         return table
 
@@ -207,12 +215,12 @@ class TUI:
 
         return start_line, "\n".join(code_lines)
 
-    def render_tool_call_end(self,call_id,tool_kind:str,name:str,success:bool,output:str|None,metadata:dict[str,Any]|None,truncated:bool = False)->None:
+    def render_tool_call_end(self,call_id,tool_kind:str,name:str,success:bool,output:str|None,metadata:dict[str,Any]|None,diff:str|None=None,truncated:bool = False,exit_code:int|None = None)->None:
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
         status_icon = "✅" if success else "❌"
         status_style = "success" if success else "error" 
-
+        args = self.tool_args_by_call_id.get(call_id,{})
         title = Text.assemble(
         (f"{status_icon}",status_style),
         (name,"tool"),
@@ -256,7 +264,39 @@ class TUI:
                     theme="monokai",
                     word_wrap=False
                 ))
+        elif name in {"write_file","edit"} and success and diff:
+            output_line = output.strip() if output.strip() else "completed" 
+            blocks.append(Text(output_line,style="muted"))
+            diff_text = diff
+            diff_display = truncate_text(diff_text,self.config.model_name,240)
+            blocks.append(Syntax(diff_display,diff,theme='monokai',word_wrap=True))
 
+        elif name == "shell":
+            command = args.get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(Text(f"$ {command.strip()}", style="muted"))
+
+            if exit_code is not None:
+                blocks.append(Text(f"exit_code={exit_code}", style="muted"))
+
+            shell_text = output or ""
+            if not success and not shell_text:
+                shell_text = "Shell command failed."
+
+            output_display = truncate_text(
+                shell_text,
+                self.config.model_name,
+                240,
+            )
+            if output_display.strip():
+                blocks.append(
+                    Syntax(
+                        output_display,
+                        "text",
+                        theme="monokai",
+                        word_wrap=True,
+                    )
+                )
         if truncated:
             blocks.append(Text("tool output was truncated",style="warning"))
         panel = Panel(
@@ -272,4 +312,3 @@ class TUI:
         )
         self.console.print()
         self.console.print(panel)
-
