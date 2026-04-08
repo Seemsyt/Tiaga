@@ -25,9 +25,9 @@ def _parse_toml(path:Path):
         with open(path,'rb') as f:
             return load(f)
     except TOMLDecodeError as e:
-        raise ConfigError(f"Invalid Toml error in {e} in path {path}")
+        raise ConfigError(f"Invalid Toml error in {e} in path {path}") from e
     except (OSError,IOError) as e:
-        raise ConfigError(f"Invalid Toml error in {e} in path {path}")
+        raise ConfigError(f"Invalid Toml error in {e} in path {path}") from e
 
 def _get_project_config(cwd:Path)->Path|None:
     current = cwd.resolve()

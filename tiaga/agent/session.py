@@ -38,7 +38,7 @@ class Session:
             data =  json.loads(content)
             entries = data.get("entries")
 
-            if entries:
+            if not entries:
                 return None
             lines = ["user preferences and notes: "]
             for key,value in entries.items():

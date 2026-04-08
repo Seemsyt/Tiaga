@@ -118,7 +118,7 @@ class Agent:
                     tool_call_results.append(
                         ToolResultMessage(
                             tool_call_id=tool_call.call_id,  # Fix: was tool_call.call_id via wrong attr name
-                            content=result.output,           # Fix: pass result content, not raw result object
+                            content=result.to_model_output(),
                             is_error=not result.success,
                         )
                     )
@@ -136,7 +136,7 @@ class Agent:
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.session.client and self.session:
+        if self.session and self.session.client:
             await self.session.client.close_client()
             self.session.client = None
             self.session = None

@@ -88,7 +88,7 @@ class ShellTool(Tool):
 
         shell_environment =  self.config.shell_environment
 
-        if not shell_environment.ignore_default_exludes:
+        if not shell_environment.ignore_default_excludes:
             for pattern in shell_environment.excludes_patterns:
                 keys_to_remove = [key for key in env.keys() if fnmatch.fnmatch(key.upper(),pattern.upper())]
                 

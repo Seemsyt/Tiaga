@@ -46,8 +46,11 @@ class EditFileTool(Tool):
             if params.old_string:
                 return ToolResult.error_result(f"file does not exists: {path} create a new file if file does not exists")
             
-            ensure_parent_directory(path)
-            path.write_text(params.new_string,encoding="utf-8")
+            try:
+                ensure_parent_directory(path)
+                path.write_text(params.new_string, encoding="utf-8")
+            except OSError as e:
+                return ToolResult.error_result(f"failed to write file: {e}")
             line_count = len(params.new_string.splitlines())
 
             return ToolResult.success_result(
@@ -69,13 +72,19 @@ class EditFileTool(Tool):
             return self._no_match_error(params.old_string,old_content,path)
         
         if occurence_count >1 and params.replace_all == False:
-            return ToolResult.error_result(f"old_string found {occurence_count} times in {path}. "
-                f"Either: \n"
-                f"1. Provide more context to make the match unique or\n"
-                f"2. Set replace_all=true to replace all occurrences",
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    f"old_string found {occurence_count} times in {path}. "
+                    "Either: \n"
+                    "1. Provide more context to make the match unique or\n"
+                    "2. Set replace_all=true to replace all occurrences"
+                ),
                 metadata={
                     "occurence_count": occurence_count,
-                })
+                },
+            )
         if params.replace_all == True:
             new_content = old_content.replace(params.old_string,params.new_string)
             replace_count = occurence_count

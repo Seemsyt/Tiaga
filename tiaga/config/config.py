@@ -9,8 +9,8 @@ class ModelConfig(BaseModel):
     temperature:float = Field(default=1,le=2.00,gt=0.00)
     context_window:int|None = 32000
 
-class ShellEnvronmentPolicy(BaseModel):
-    ignore_default_exludes:bool = False
+class ShellEnvironmentPolicy(BaseModel):
+    ignore_default_excludes:bool = False
     excludes_patterns: list[str] = Field(
     default_factory=lambda: ["*KEY*", "*TOKEN*", "*SECRET*"]
 )
@@ -22,7 +22,7 @@ class Config(BaseModel):
     api_key_value:str|None = Field(default=None,alias="api_key")
     base_url_value:str|None = Field(default=None,alias="base_url")
     cwd:Path = Field(default_factory=Path.cwd)
-    shell_environment:ShellEnvronmentPolicy = Field(default_factory=ShellEnvronmentPolicy)
+    shell_environment:ShellEnvironmentPolicy = Field(default_factory=ShellEnvironmentPolicy)
 
     max_turns:int = 100
     max_output_tokens:int = 50000
@@ -73,7 +73,7 @@ class Config(BaseModel):
         return self.model.temperature
     
     @temperature.setter
-    def temprature(self,value:float)->None:
+    def temperature(self,value:float)->None:
         self.model.temperature = value
 
     
