@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel,Field
 
@@ -18,11 +19,17 @@ class ShellEnvronmentPolicy(BaseModel):
 
 class Config(BaseModel):
     model:ModelConfig = Field(default_factory=ModelConfig)
+    api_key_value:str|None = Field(default=None,alias="api_key")
+    base_url_value:str|None = Field(default=None,alias="base_url")
     cwd:Path = Field(default_factory=Path.cwd)
     shell_environment:ShellEnvronmentPolicy = Field(default_factory=ShellEnvronmentPolicy)
 
     max_turns:int = 100
     max_output_tokens:int = 50000
+    allowed_tools:list[str]|None = Field(
+        default=None,
+        description="If set, only these tools will be available for the agent",
+    )
 
     developer_instruction:str|None = None
     user_instruction:str|None = None
@@ -31,16 +38,34 @@ class Config(BaseModel):
 
     @property
     def api_key(self)-> str|None:
-        return os.environ.get("API_KEY")
+        return os.environ.get("API_KEY") or self.api_key_value
+
+    @api_key.setter
+    def api_key(self,value:str|None)->None:
+        self.api_key_value = value
+        if value is None:
+            os.environ.pop("API_KEY",None)
+        else:
+            os.environ["API_KEY"] = value
+
     @property
     def base_url(self)->str|None:
-        return os.environ.get("BASE_URL")
+        return os.environ.get("BASE_URL") or self.base_url_value
+
+    @base_url.setter
+    def base_url(self,value:str|None)->None:
+        self.base_url_value = value
+        if value is None:
+            os.environ.pop("BASE_URL",None)
+        else:
+            os.environ["BASE_URL"] = value
+
     @property
     def model_name(self)->str|None:
         return self.model.name
     
     @model_name.setter
-    def model_name(self,value)->str|None:
+    def model_name(self,value:str)->None:
         self.model.name = value
 
     @property
@@ -48,7 +73,7 @@ class Config(BaseModel):
         return self.model.temperature
     
     @temperature.setter
-    def temprature(self,value)->str|None:
+    def temprature(self,value:float)->None:
         self.model.temperature = value
 
     
@@ -56,9 +81,11 @@ class Config(BaseModel):
         errors:list[str] = []
          
         if not self.api_key:
-            errors.append('NO API key was found, set API_KEY in evronment variable')
+            errors.append('NO API key was found, set API_KEY in environment variable')
         if not self.cwd.exists():
             errors.append(f"Working directory does not exists at {self.cwd}")
         return errors
+    def to_dict(self)->dict[str,Any]:
+        return self.model_dump(mode='json')
 
     

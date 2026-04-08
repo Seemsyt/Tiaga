@@ -72,6 +72,7 @@ class AgentEvent:
                    "success":result.success,
                    "error":result.error,
                    "output":result.output,
+                   "display_output": result.display_output if result.display_output is not None else result.output,
                    "metadata":result.metadata,
                    "diff":result.diff.create_diff() if result.diff else None,
                    "truncated":result.truncated,

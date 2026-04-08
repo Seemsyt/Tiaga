@@ -51,6 +51,7 @@ class ToolResult:
     metadata: dict[str,Any] = field(default_factory=dict)
 
     truncated: bool = False
+    display_output: str | None = None
     diff:FileDiff|None = None
     exit_code: int | None = None
 
@@ -60,7 +61,7 @@ class ToolResult:
     ):
         return cls(success=False,output=output,error=error)
     @classmethod
-    def succes_result(cls, output: str = "", **kwargs: Any):
+    def success_result(cls, output: str = "", **kwargs: Any):
         return cls(
         success=True,
          output=output,
@@ -153,4 +154,3 @@ class Tool(ABC):
             return result
         else:
             raise ValueError(f"invalid schema type for tool{self.name} and {self.schema}")
-

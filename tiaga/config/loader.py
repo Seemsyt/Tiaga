@@ -4,12 +4,17 @@ from tomli import TOMLDecodeError,load
 from .config import Config
 from platformdirs import user_config_dir
 import logging
-from tiaga.utlis.erors import ConfigError
+from tiaga.utils.erors import ConfigError
 logger = logging.getLogger(__name__)
 CONFIG_FILE_NAME =  'config.toml'
 AGENT_MD_FILE = "AGENT.md"
 
 def get_config_dir()->Path:
+    return Path(user_config_dir("seems-tiaga"))
+
+
+
+def get_data_dir()->Path:
     return Path(user_config_dir("seems-tiaga"))
 
 def get_system_config_path()->Path:
@@ -54,6 +59,63 @@ def _merge_dicts(base:dict[str,Any],overide:dict[str,Any])->dict[str,Any]:
         else :
             result[key] = value
     return result
+
+def _format_toml_value(value:Any)->str:
+    if isinstance(value,bool):
+        return "true" if value else "false"
+    if isinstance(value,(int,float)):
+        return str(value)
+    if isinstance(value,str):
+        escaped = value.replace("\\","\\\\").replace('"','\\"')
+        return f'"{escaped}"'
+    if isinstance(value,list):
+        inner = ", ".join(_format_toml_value(item) for item in value)
+        return f"[{inner}]"
+    raise ConfigError(f"Unsupported TOML value type: {type(value).__name__}")
+
+def _dict_to_toml(data:dict[str,Any],prefix:str|None = None)->str:
+    lines:list[str] = []
+    nested_items:list[tuple[str,dict[str,Any]]] = []
+
+    for key,value in data.items():
+        if isinstance(value,dict):
+            nested_items.append((key,value))
+            continue
+        lines.append(f"{key} = {_format_toml_value(value)}")
+
+    for key,child in nested_items:
+        table_name = f"{prefix}.{key}" if prefix else key
+        child_body = _dict_to_toml(child,prefix=table_name).strip()
+        if not child_body:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"[{table_name}]")
+        lines.append(child_body)
+
+    return "\n".join(lines).rstrip() + "\n"
+
+def update_system_config(values:dict[str,Any])->Path:
+    return _update_config_at_path(get_system_config_path(),values)
+
+def _update_config_at_path(path:Path,values:dict[str,Any])->Path:
+    path.parent.mkdir(parents=True,exist_ok=True)
+    current:dict[str,Any] = {}
+    if path.is_file():
+        current = _parse_toml(path)
+    merged = _merge_dicts(current,values)
+    path.write_text(_dict_to_toml(merged),encoding="utf-8")
+    return path
+
+def update_config(values:dict[str,Any],cwd:Path|None = None)->Path:
+    system_path = get_system_config_path()
+    try:
+        return _update_config_at_path(system_path,values)
+    except OSError:
+        if cwd is None:
+            raise
+        project_path = cwd/".seems-tiaga"/CONFIG_FILE_NAME
+        return _update_config_at_path(project_path,values)
 
 
 def load_config(cwd:Path|None)-> Config:

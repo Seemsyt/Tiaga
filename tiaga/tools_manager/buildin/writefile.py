@@ -1,6 +1,6 @@
 from pydantic import BaseModel,Field
 from tiaga.tools_manager.base import FileDiff, Tool, Tool_kind, ToolInvocation, ToolResult
-from tiaga.utlis.path import resolve_path,ensure_parent_directory
+from tiaga.utils.path import resolve_path,ensure_parent_directory
 
 class WriteFileParams(BaseModel):
     path: str = Field(
@@ -33,7 +33,7 @@ class WriteFileTool(Tool) :
             try:
                 old_content = path.read_text(encoding='utf-8')
             except:
-                pass
+                old_content = ""
         try:
             if params.create_directories:
                 ensure_parent_directory(path)
@@ -44,7 +44,7 @@ class WriteFileTool(Tool) :
             lines = len(params.content.splitlines())
 
 
-            return ToolResult.succes_result(f"{action} {path} {lines} lines",
+            return ToolResult.success_result(f"{action} {path} {lines} lines",
                                             diff=FileDiff(path=path,old_content=old_content,new_content=params.content,is_new_file=is_new_file),
                                             metadata={
                                                "path": str(path),

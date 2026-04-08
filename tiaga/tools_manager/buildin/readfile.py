@@ -1,7 +1,7 @@
 from pydantic import BaseModel,Field
-from tiaga.utlis.path import is_binary, resolve_path
+from tiaga.utils.path import is_binary, resolve_path
 from ..base import Tool,Tool_kind, ToolInvocation,ToolResult
-from tiaga.context.text import calculate_token,truncate_text
+from tiaga.context.text import truncate_text
 class ReadFileParams(BaseModel):
     path:str = Field(...,description="This the path to the file which can be read(it can be related to working directory  path or absolute path)(this is required)")
 
@@ -16,11 +16,10 @@ class ReadFileTool(Tool):
         "Cannot read binary files (images, executables, etc.)."
     )
     tool_kind = Tool_kind.READ
-    MAX_OUTPUT = 25000
+    MAX_DISPLAY_OUTPUT_TOKENS = 25000
     schema = ReadFileParams
     MAX_SIZE = 1024*1024*10
     async def execute(self, invocation:ToolInvocation):
-        truncated = False
         params = ReadFileParams(**invocation.params)
         path = resolve_path(invocation.cwd,params.path)
 
@@ -45,7 +44,7 @@ class ReadFileTool(Tool):
             total_lines = len(lines)
 
             if total_lines == 0 :
-                return ToolResult.succes_result(output="file is empty",kwargs={
+                return ToolResult.success_result(output="file is empty",kwargs={
                     "metadata":{
                         "lines":0,
                     }
@@ -62,15 +61,6 @@ class ReadFileTool(Tool):
                 formated_lines.append(f"{i:6}| {line}")
             
             output = "\n".join(formated_lines)
-            token_count = calculate_token(output, None)
-            if token_count > self.MAX_OUTPUT :
-                output = truncate_text(
-                    output,
-                    model="gpt-4o-mini",
-                    max_tokens=self.MAX_OUTPUT,
-                    suffix="\n...[truncated]",
-                )
-                truncated = True
             metadata_lines = []
             if start_idx >0 and end_idx<total_lines:
                 metadata_lines.append(f"showing lines from {start_idx+1} to {end_idx}") 
@@ -78,9 +68,22 @@ class ReadFileTool(Tool):
                 header = "|".join(metadata_lines) + "\n"
                 output = header + output
 
-            return ToolResult.succes_result(
+            display_output = None
+            is_truncated = False
+            maybe_truncated = truncate_text(
+                output,
+                model="gpt-4o-mini",
+                max_tokens=self.MAX_DISPLAY_OUTPUT_TOKENS,
+                suffix="\n...[truncated for display]",
+            )
+            if maybe_truncated != output:
+                display_output = maybe_truncated
+                is_truncated = True
+
+            return ToolResult.success_result(
                 output=output,
-                truncated=truncated,
+                display_output=display_output,
+                truncated=is_truncated,
                 metadata = {
                     "path":str(path),
                     "total_lines":total_lines,

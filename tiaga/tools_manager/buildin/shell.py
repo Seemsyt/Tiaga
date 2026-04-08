@@ -79,6 +79,7 @@ class ShellTool(Tool):
     name = "shell"
     tool_kind = Tool_kind.SHELL
     description = "Execute a shell command. Use this for running system commands, scripts and CLI tools."
+    MAX_DISPLAY_OUTPUT_BYTES = 100 * 1024
 
     schema = ShellParams
 
@@ -138,11 +139,22 @@ class ShellTool(Tool):
             stdout_data,stderr_data = await asyncio.wait_for(process.communicate(),timeout=params.timeout)
         except asyncio.TimeoutError as e :
             if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid),signal.SIGKILL)
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass  # Process already terminated
             else :
                 process.kill()
             await process.wait()
             return ToolResult.error_result(f"Command timed out after {params.timeout}s")
+        
+        except asyncio.CancelledError:       
+            if sys.platform != "win32":
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            else:
+                process.kill()
+                await process.wait()
+                raise      
         stdout = stdout_data.decode("utf-8",errors="replace")
         stderr = stderr_data.decode("utf-8",errors="replace")
         exit_code  = process.returncode
@@ -157,12 +169,19 @@ class ShellTool(Tool):
         if exit_code != 0:
             output +=f"\nexit code  {exit_code}"
 
-        if len(output) > 100 * 1024:
-            output = output[: 100 * 1024] + "\n... [output truncated]"
+        display_output = None
+        is_truncated = False
+        if len(output) > self.MAX_DISPLAY_OUTPUT_BYTES:
+            display_output = (
+                output[: self.MAX_DISPLAY_OUTPUT_BYTES] + "\n... [output truncated for display]"
+            )
+            is_truncated = True
 
         return ToolResult(success=exit_code == 0,
             output=output,
             error=stderr if exit_code != 0 else None,
+            display_output=display_output,
+            truncated=is_truncated,
             exit_code=exit_code,
         )
 

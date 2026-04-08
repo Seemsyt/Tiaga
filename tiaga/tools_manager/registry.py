@@ -3,12 +3,14 @@ from typing import Any
 from tiaga.config.config import Config
 from tiaga.tools_manager.buildin import get_all_builtin_tool
 from tiaga.tools_manager.base import Tool, ToolResult,ToolInvocation
+from tiaga.tools_manager.subagent import SubagentTool, get_default_subagent_definition
 
 logger  = logging.getLogger(__name__)
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self,config:Config):
         self._tools:dict[str,Tool] = {}
+        self.config = config
     def register(self,tool:Tool):
         if tool.name in self._tools :
             logger.warning(f"Overwriting existing tool{tool.name}")
@@ -24,6 +26,9 @@ class ToolRegistry:
         tools:list[Tool] = []
         for tool in self._tools.values():
             tools.append(tool)
+        if self.config.allowed_tools:
+            allowed_tool = set(self.config.allowed_tools)
+            tools = [t for t in tools if t.name in allowed_tool]
         return tools
     def get(self,name:str)->Tool:
         if name in self._tools:
@@ -44,17 +49,18 @@ class ToolRegistry:
             return result
         except Exception as e :
             logger.exception(f"Tool {name}raise an {e}")
-            return {
-                f"internal error{str(e)} for {name}"
-                }
+            return ToolResult.error_result(
+                f"internal error {str(e)} for {name}"
+            )
 def create_default_registry(config:Config) -> ToolRegistry:
-    registry = ToolRegistry()
+    registry = ToolRegistry(config=config)
     for tool_cls in get_all_builtin_tool():
         registry.register(tool_cls(config))
 
+    for sub_agent in get_default_subagent_definition():
+        registry.register(SubagentTool(config,sub_agent))
     return registry
 
 
 
         
-

@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from tiaga.tools_manager.base import FileDiff, Tool, Tool_kind, ToolInvocation, ToolResult
-from tiaga.utlis.path import ensure_parent_directory, resolve_path
+from tiaga.utils.path import ensure_parent_directory, resolve_path
 
 
 class EditParams(BaseModel):
@@ -47,10 +47,10 @@ class EditFileTool(Tool):
                 return ToolResult.error_result(f"file does not exists: {path} create a new file if file does not exists")
             
             ensure_parent_directory(path)
-            path.write_text(params.new_string,encoding='utf=8')
+            path.write_text(params.new_string,encoding="utf-8")
             line_count = len(params.new_string.splitlines())
 
-            return ToolResult.succes_result(
+            return ToolResult.success_result(
                 f"created path: {path} {line_count} no of lines",
                 diff = FileDiff(path,old_content=None,new_content=params.new_string,is_new_file=True),
                 metadata={
@@ -66,7 +66,7 @@ class EditFileTool(Tool):
             return ToolResult.error_result(f"old_string is empty but file exists: {path} . provide old_string to edit or use write_file to override")
         occurence_count = old_content.count(params.old_string)
         if occurence_count == 0 :
-            return self._no_match_found(params.old_string,old_content,path)
+            return self._no_match_error(params.old_string,old_content,path)
         
         if occurence_count >1 and params.replace_all == False:
             return ToolResult.error_result(f"old_string found {occurence_count} times in {path}. "
@@ -99,7 +99,7 @@ class EditFileTool(Tool):
         elif line_diff < 0:
             diff_msg = f" ({line_diff} lines)"
 
-        return ToolResult.succes_result(
+        return ToolResult.success_result(
             f"Edited {path} replaced {replace_count}  occurence(s) {diff_msg} ",
             diff = FileDiff(
                 path=path,

@@ -6,9 +6,10 @@ from tiaga.client.llm_client import LLM_client
 from tiaga.client.response import StreamEventType, ToolCall, ToolResultMessage  # Fix typo: reaponse -> response
 from tiaga.agent.session import Session
 from tiaga.tools_manager.registry import create_default_registry
+from tiaga.tools_manager.base import ToolResult
 from tiaga.config.config import Config
 from .events import AgentEvent, AgentEventType
-from tiaga.context.manager import ContextManager
+
 
 
 class Agent:
@@ -102,6 +103,11 @@ class Agent:
                         self.config.cwd,
                     )
 
+                    if not isinstance(result, ToolResult):
+                        result = ToolResult.error_result(
+                            f"tool {tool_call.name} returned invalid result type: {type(result).__name__}"
+                        )
+
                     yield AgentEvent.tool_call_complete(
                         tool_call.call_id,
                         tool_call.name,
@@ -123,13 +129,14 @@ class Agent:
                         tool_result.content,
                     )
 
+        yield AgentEvent.agent_error(f"Maximum turns ({max_turn}) reached")
                
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.session.client:
+        if self.session.client and self.session:
             await self.session.client.close_client()
             self.session.client = None
             self.session = None

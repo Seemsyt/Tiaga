@@ -10,6 +10,7 @@ wheels/
 .venv
 .env
 *.db
+tiaga/.seems-tiaga/
 
 # Frontend artifacts
 ink-cli/node_modules/
