@@ -8,7 +8,7 @@ import signal
 import sys
 
 from pydantic import BaseModel,Field
-from tiaga.tools_manager.base import Tool, Tool_kind, ToolInvocation, ToolResult
+from tiaga.tools_manager.base import Tool, Tool_kind, ToolConfirmation, ToolInvocation, ToolResult
 
 
 BLOCKED_PATTERNS = {
@@ -99,6 +99,28 @@ class ShellTool(Tool):
             env.update(shell_environment.set_vars)
 
         return env
+
+    async def get_confirmation(self, invocation:ToolInvocation)->ToolConfirmation|None:
+        params = ShellParams(**invocation.params)
+
+        for blocked in BLOCKED_PATTERNS:
+            if blocked in params.command:
+                return ToolConfirmation(
+                    tool_name=self.name,
+                    params=invocation.params,
+                    description=f"Excute (Blocked)command {params.command}",
+                    command=params.command,
+                    is_dangerous= True,
+
+        )
+        return ToolConfirmation(
+            tool_name=self.name,
+            params=invocation.params,
+            description=f"Execute {params.command}",
+            command=params.command,
+            is_dangerous= False
+
+        )
 
     async def execute(self, invocation:ToolInvocation)->ToolResult:
         params = ShellParams(**invocation.params)

@@ -18,7 +18,7 @@ Create and activate a virtual environment, then install:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install tiaga .
 ```
 
 Set environment variables (or use `/config` commands at runtime):

@@ -5,7 +5,11 @@ import uuid
 from tiaga.client.llm_client import LLM_client
 from tiaga.config.config import Config 
 from tiaga.config.loader import get_data_dir
+from tiaga.context.compaction import ChatCompaction
 from tiaga.context.manager import ContextManager
+from tiaga.safty.approval import ApprovalManager
+from tiaga.tools_manager.discovery import ToolDiscoveryManger
+from tiaga.tools_manager.mcp.mcp_manager import MCPManager
 from tiaga.tools_manager.registry import create_default_registry
 
 
@@ -17,12 +21,24 @@ class Session:
         self.config = config
         self.client = LLM_client(config)
         self.tool_registry = create_default_registry(config)
-        self.context_manager = ContextManager(config,memory=self._load_memory(),tools=self.tool_registry.get_tools())
+        self.tool_discovery_manager = ToolDiscoveryManger(self.config,self.tool_registry)
+        self.mcp_manager = MCPManager(self.config)
+        self.context_manager:ContextManager|None = None
+        self.approval_manager = ApprovalManager(self.config.approval,self.config.cwd)
         self.session_id = str(uuid.uuid4())
+        self.chat_compactor = ChatCompaction(self.client)
         self.created = datetime.now()
         self.updated = datetime.now()
         self._turn_count = 0 
+        
 
+
+    async def initialize(self)->None:
+        await self.mcp_manager.initialize()
+        self.mcp_manager.register_tools(self.tool_registry)
+        self.tool_discovery_manager.discover_all()
+
+        self.context_manager = ContextManager(self.config,memory=self._load_memory(),tools=self.tool_registry.get_tools())
 
     def _load_memory(self)->dict:
         data_dir = get_data_dir()

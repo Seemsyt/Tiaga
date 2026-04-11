@@ -18,7 +18,7 @@ class LLM_client:
        
     def get_client(self)->AsyncOpenAI:
         if self.client is None:
-           
+            
             self.client = AsyncOpenAI(
             api_key=self.config.api_key,
             base_url=self.config.base_url,
@@ -83,7 +83,7 @@ class LLM_client:
 
             normalized.append(item)
         return normalized
-    async def chat_completion(self,message:list[dict[str,Any]],tools:list[dict[str,Any]]|None= None,stream:bool = True)->AsyncGenerator[StreamEvent]:
+    async def chat_completion(self,message:list[dict[str,Any]],tools:list[dict[str,Any]]|None= None,stream:bool = True)->AsyncGenerator[StreamEvent, None]:
         client = self.get_client()
         tools_calls:dict[int,dict[str,Any]] = {}
         normalized_messages = self._normalize_messages(message)

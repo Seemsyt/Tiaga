@@ -1,8 +1,9 @@
 
 from typing import Any
+from tiaga.client.response import TokenUsage
 from tiaga.config.config import Config
 from tiaga.tools_manager.base import Tool
-
+from datetime import datetime
 from .text import calculate_token
 
 from .prompts import get_system_prompt
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class MessageItem:
+    
     role:str
     content:str|None
     tool_call_id:str|None = None
@@ -29,19 +31,21 @@ class MessageItem:
         return result
 
 class ContextManager:
+    PRUNE_PROTECT_TOKEN = 40_000
+    PRUNE_MINIMUM_TOKEN = 20_000
+
+
     def __init__(self, config: Config,memory:str|None,tools:list[Tool]|None):
         self.config = config
         self.system_prompt = get_system_prompt(config,memory,tools=tools)
         self.model_name = config.model_name or "qwen/qwen3.6-plus:free"
         self.messages:list[MessageItem] = []
+        self._latest_usage:TokenUsage = TokenUsage()
+        self._total_usage = TokenUsage()
+        self.pruned_at:datetime|None = None
+        
     
 
-        
-        self.token_usage = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
 
     # --- Add message ---
     def add_user_message(self, content:str):
@@ -96,10 +100,102 @@ class ContextManager:
 
     # --- Update token usage ---
     def update_usage(self, usage: dict):
-        self.token_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
-        self.token_usage["completion_tokens"] += usage.get("completion_tokens", 0)
-        self.token_usage["total_tokens"] += usage.get("total_tokens", 0)
-
+        self._total_usage += usage
     # --- Get usage ---
     def get_usage(self):
-        return self.token_usage
+        return self._total_usage
+    
+    def latest_usage(self,usage:dict):
+        self._latest_usage = usage
+
+    def need_compression(self)->bool:
+        context_limit =  self.config.model.context_window
+        token_usage = self._total_usage.total_tokens
+        return token_usage > (context_limit*0.8)
+
+    def repplace_with_summary(self,summary:str)->None:
+        self.messages = []
+        continuation_content = f"""# Context Restoration (Previous Session Compacted)
+
+        The previous conversation was compacted due to context length limits. Below is a detailed summary of the work done so far. 
+
+        **CRITICAL: Actions listed under "COMPLETED ACTIONS" are already done. DO NOT repeat them.**
+
+        ---
+
+        {summary}
+
+        ---
+
+        Resume work from where we left off. Focus ONLY on the remaining tasks."""
+
+        summary_item = MessageItem(
+            role="user",
+            content=continuation_content,
+            token_count=calculate_token(continuation_content,self.model_name)
+
+        )
+        
+        self.messages.append(summary_item)
+
+        ack_content = """I've reviewed the context from the previous session. I understand:
+- The original goal and what was requested
+- Which actions are ALREADY COMPLETED (I will NOT repeat these)
+- The current state of the project
+- What still needs to be done"""
+        """I'll continue with the REMAINING tasks only, starting from where we left off."""
+        ack_item = MessageItem(
+            role="assistant",
+            content=ack_content,
+            token_count=calculate_token(ack_content, self.model_name),
+        )
+        self.messages.append(ack_item)
+
+        continue_content = (
+            "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
+            "Proceed with the next step as described in the context above."
+        )
+
+        continue_item = MessageItem(
+            role="user",
+            content=continue_content,
+            token_count=calculate_token(continue_content, self.model_name),
+        )
+        self.messages.append(continue_item)
+
+    def pruning_tool_outputs(self,)->int:
+        user_message_count = sum(1 for msg in self.messages if msg.role == "user")
+
+
+        total_token = 0 
+        pruned_tokens = 0 
+        to_prune :list[MessageItem] = []
+        if user_message_count > 2:
+            return 0
+        for msg in reversed(self.messages):
+            if msg.role == "tool" and msg.tool_call_id:
+                if self.pruned_at:
+                    break
+                token_count = msg.token_count or calculate_token(msg.content,self.model_name) 
+                total_token += token_count
+
+                if total_token > self.PRUNE_PROTECT_TOKEN:
+                    pruned_tokens += token_count
+                    to_prune.append(msg)
+
+        if pruned_tokens < self.PRUNE_MINIMUM_TOKEN:
+            return 0
+        pruned_count = 0 
+        for msg in to_prune:
+            msg.content = '[old tool result content cleared]'
+            msg.token_count = calculate_token(msg.content,self.model_name)
+            self.pruned_at = datetime.now()
+            pruned_count +=1
+
+        return pruned_count
+
+        
+
+
+
+

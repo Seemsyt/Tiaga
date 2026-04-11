@@ -1,13 +1,15 @@
+from __future__ import annotations
+from enum import Enum
 import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel,Field, model_validator
 
 class ModelConfig(BaseModel):
     name:str = "stepfun/step-3.5-flash:free"
     temperature:float = Field(default=1,le=2.00,gt=0.00)
-    context_window:int|None = 32000
+    context_window:int|None = 160_000
 
 class ShellEnvironmentPolicy(BaseModel):
     ignore_default_excludes:bool = False
@@ -17,13 +19,47 @@ class ShellEnvironmentPolicy(BaseModel):
     set_vars:dict[str,str] = Field(default_factory=dict)
 
 
+class MCPServersConfig(BaseModel):
+    enabled:bool = True
+    startup_timeout_seconds:float = 10 
+    command:str|None =None
+    args:list[str] = Field(default_factory=list)
+    env:dict[str,str] = Field(default_factory=dict)
+    cwd:Path|None = None
+
+    url:str|None = None
+
+
+    @classmethod
+    @model_validator(mode="after")
+    def validate_transport(self)->MCPServersConfig:
+        has_command = self.command is not None
+        has_url = self.url is not None
+
+        if not has_command and not has_url:
+            raise ValueError(f"MCP server should have either command (stdio) or url(hhtp/sse)")
+        if has_url and has_command:
+            raise ValueError(f"MCP server should not have both command (stdio) and url(hhtp/sse) ")
+        
+        return self
+
+
+class ApprovalPolicy(str,Enum):
+    ON_REQUEST = "on_request"
+    ON_FAILURE = 'on_failure'
+    AUTO = 'auto'
+    AUTO_EDIT = 'auto_edit'
+    NEVER="never"
+    YOLO="yolo"
+
 class Config(BaseModel):
     model:ModelConfig = Field(default_factory=ModelConfig)
     api_key_value:str|None = Field(default=None,alias="api_key")
     base_url_value:str|None = Field(default=None,alias="base_url")
     cwd:Path = Field(default_factory=Path.cwd)
     shell_environment:ShellEnvironmentPolicy = Field(default_factory=ShellEnvironmentPolicy)
-
+    approval:ApprovalPolicy = ApprovalPolicy.ON_REQUEST
+    mcp_servers:dict[str,MCPServersConfig] = Field(...,default_factory=dict) 
     max_turns:int = 100
     max_output_tokens:int = 50000
     allowed_tools:list[str]|None = Field(

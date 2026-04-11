@@ -1,5 +1,5 @@
 from pydantic import BaseModel,Field
-from tiaga.tools_manager.base import FileDiff, Tool, Tool_kind, ToolInvocation, ToolResult
+from tiaga.tools_manager.base import FileDiff, Tool, Tool_kind, ToolConfirmation, ToolInvocation, ToolResult
 from tiaga.utils.path import resolve_path,ensure_parent_directory
 
 class WriteFileParams(BaseModel):
@@ -22,6 +22,31 @@ class WriteFileTool(Tool) :
     )
     tool_kind = Tool_kind.WRITE
     schema = WriteFileParams
+
+    async def get_confirmation(self, invocation:ToolInvocation)->ToolConfirmation|None:
+        params = WriteFileParams(**invocation.params)
+        path = resolve_path(invocation.cwd,params.path)
+
+        is_new_file = not path.exists()
+        action = "created" if is_new_file else "updated"
+
+        old_content = " "
+        if not is_new_file:
+            try:
+                old_content = path.read_text(encoding='utf-8')
+            except:
+                pass
+
+        diff = FileDiff(path,old_content=old_content,new_content=params.content,is_new_file=is_new_file)
+        return ToolConfirmation(
+            tool_name=self.name,
+            params=invocation.params,
+            description=f"action {action} path{path}",
+            diff=diff,
+            affected_paths=[path],
+            is_dangerous= not is_new_file
+
+        )
 
     async def execute(self, invocation:ToolInvocation)->ToolResult:
         params = WriteFileParams(**invocation.params)

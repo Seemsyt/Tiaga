@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any,Tuple
 
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.console import Console,Group
@@ -12,6 +13,7 @@ from rich import box
 import json
 from tiaga.config.config import Config
 from tiaga.context.text import truncate_text
+from tiaga.tools_manager.base import ToolConfirmation
 from tiaga.utils.path import resolve_path,display_path_relative_to_cwd
 import re
 from rich.syntax import Syntax
@@ -459,6 +461,9 @@ class TUI:
 
                 if is_truncated:
                     blocks.append(Text("⚠ listing truncated — use max_entries to increase limit", style="warning"))
+        
+        elif success and output:
+                blocks.append(Text(output, style="code"))
         if error and not success:
                     blocks.append(Text(error,style="error"))
                     output_display = truncate_text(output,"gpt-4o-mini",240)
@@ -479,3 +484,43 @@ class TUI:
         )
         self.console.print()
         self.console.print(panel)
+
+
+
+    def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
+        output = [
+            Text(confirmation.tool_name, style="tool"),
+            Text(confirmation.description, style="code"),
+        ]
+
+        if confirmation.command:
+            output.append(Text(f"$ {confirmation.command}", style="warning"))
+
+        if confirmation.diff:
+            diff_text = confirmation.diff.create_diff()
+            output.append(
+                Syntax(
+                    diff_text,
+                    "diff",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                Group(*output),
+                title=Text("Approval required", style="warning"),
+                title_align="left",
+                border_style="warning",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+        response = Prompt.ask(
+            "\nApprove?", choices=["y", "n", "yes", "no"], default="n"
+        )
+
+        return response.lower() in {"y", "yes"}

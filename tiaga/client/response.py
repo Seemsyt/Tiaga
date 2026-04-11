@@ -28,7 +28,7 @@ class TokenUsage:
         return TokenUsage(prompt_tokens = self.prompt_tokens + other.prompt_tokens,
                 completion_tokens=self.completion_tokens+other.completion_tokens,
                 total_tokens=self.total_tokens+other.total_tokens,
-                cached_tokens=self.cached_tokens+other.cached_tokens,
+                cached_tokens=self.cached_tokens+other.cached_tokens if other.cached_tokens else 0 ,
                 )
 @dataclass 
 class ToolCallDelta:

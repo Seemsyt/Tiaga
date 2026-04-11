@@ -10,6 +10,7 @@ CONFIG_FILE_NAME =  'config.toml'
 AGENT_MD_FILE = "AGENT.md"
 
 def get_config_dir()->Path:
+
     return Path(user_config_dir("seems-tiaga"))
 
 

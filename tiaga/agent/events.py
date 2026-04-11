@@ -22,20 +22,20 @@ class AgentEvent:
     data:dict[str,Any] = field(default_factory=dict)
 
     @classmethod
-    def agent_start(cls,messages:str)->AgentEvent:
+    def agent_start(cls,messages:str)->AgentEventType:
           return cls(
                 type = AgentEventType.AGENT_START,
                 data = {"message":messages},
           )
     
     @classmethod
-    def agent_end(cls,usage:TokenUsage|None,response:str|None = None)->AgentEvent:
+    def agent_end(cls,usage:TokenUsage|None=None,response:str|None = None)->AgentEventType:
           return cls(
                 type = AgentEventType.AGENT_END,
                 data = {"response":response,"usage":usage.__dict__ if usage else None},
           )
     @classmethod
-    def agent_error(cls,detail:str|None,error:str|None)->AgentEvent:
+    def agent_error(cls,detail:str|None,error:str|None)->AgentEventType:
           return cls(
                 type = AgentEventType.AGENT_ERROR,
                 data = {"error":error,"detail✌️":detail or {}}

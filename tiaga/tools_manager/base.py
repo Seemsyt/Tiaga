@@ -79,6 +79,12 @@ class ToolConfirmation:
     tool_name:str
     params:dict[str,Any]
     description:str
+
+    diff:FileDiff|None = None
+    command:str|None = None
+    is_dangerous:bool = False
+    affected_paths:list[Path] = field(default_factory=list)
+
 class Tool_kind(str,Enum):
     READ = "read"
     WRITE = 'write'
@@ -130,6 +136,7 @@ class Tool(ABC):
             tool_name=self.name,
             params=invocation.params,
             description=f"Execute{self.name}"
+            
         )
     def to_open_ai_schema(self)->dict[str,Any]:
         schema=self.schema
