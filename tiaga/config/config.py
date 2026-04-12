@@ -52,12 +52,36 @@ class ApprovalPolicy(str,Enum):
     NEVER="never"
     YOLO="yolo"
 
+class HookTrigger(str, Enum):
+    BEFORE_AGENT = "before_agent"
+    AFTER_AGENT = "after_agent"
+    BEFORE_TOOL = "before_tool"
+    AFTER_TOOL = "after_tool"
+    ON_ERROR = "on_error"
+
+
+class HookConfig(BaseModel):
+    name: str
+    trigger: HookTrigger
+    command: str | None = None  # python3 tests.py
+    script: str | None = None  # *.sh
+    timeout_sec: float = 30
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_hook(self) -> HookConfig:
+        if not self.command and not self.script:
+            raise ValueError("Hook must either have 'command' or 'script'")
+        return self
+
 class Config(BaseModel):
     model:ModelConfig = Field(default_factory=ModelConfig)
     api_key_value:str|None = Field(default=None,alias="api_key")
     base_url_value:str|None = Field(default=None,alias="base_url")
     cwd:Path = Field(default_factory=Path.cwd)
     shell_environment:ShellEnvironmentPolicy = Field(default_factory=ShellEnvironmentPolicy)
+    hooks_enabled:bool = False
+    hooks:list[HookConfig] = Field(default_factory=HookConfig)
     approval:ApprovalPolicy = ApprovalPolicy.ON_REQUEST
     mcp_servers:dict[str,MCPServersConfig] = Field(...,default_factory=dict) 
     max_turns:int = 100

@@ -5,6 +5,7 @@ from typing import AsyncGenerator, Callable
 from tiaga.client.llm_client import LLM_client
 from tiaga.client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage  # Fix typo: reaponse -> response
 from tiaga.agent.session import Session
+from tiaga.context.prompts import create_loop_breaker_prompt
 from tiaga.tools_manager.registry import create_default_registry
 from tiaga.tools_manager.base import ToolConfirmation, ToolResult
 from tiaga.config.config import Config
@@ -21,6 +22,7 @@ class Agent:
         self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str):
+        await self.session.hook_system.trigger_before_agent(message)
         yield AgentEvent.agent_start(messages=message)
         self.session.context_manager.add_user_message(message)
         final_response = None
@@ -29,6 +31,8 @@ class Agent:
             yield event
             if event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content", "")
+                
+            await self.session.hook_system.trigger_after_agent(message,final_response)
 
         yield AgentEvent.agent_end(response=final_response)
 
@@ -95,6 +99,7 @@ class Agent:
 
             if response_text:
                 yield AgentEvent.text_complete(response_text)
+                self.session.loop_detector.record_actions("response",text = response_text)
             
             if not tools_calls :
                 if usage:
@@ -112,14 +117,15 @@ class Agent:
                         name=tool_call.name,
                         arguments=tool_call.arguments,
                     )
-
+                    self.session.loop_detector.record_actions("tool_call",tool_name = tool_call.name,args=tool_call.arguments)
                     result = await self.session.tool_registry.invoke(
                         tool_call.name,
                         tool_call.arguments,
                         self.config.cwd,
-                        self.session.approval_manager
+                        self.session.approval_manager,
+                        self.session.hook_system
                     )
-
+                    
                     if not isinstance(result, ToolResult):
                         result = ToolResult.error_result(
                             f"tool {tool_call.name} returned invalid result type: {type(result).__name__}"
@@ -145,6 +151,12 @@ class Agent:
                         tool_result.tool_call_id,   # Fix: was tool_result.call_id (wrong attribute)
                         tool_result.content,
                     )
+                loop_detection_error =  self.session.loop_detector.check_for_loop()
+                if loop_detection_error:
+                    loop_prompt = create_loop_breaker_prompt(loop_detection_error)
+                    self.session.context_manager.add_user_message(loop_prompt)
+                    print("loop detected")
+
                 if usage:
                     self.session.context_manager.latest_usage(usage)
                     self.session.context_manager.update_usage(usage)

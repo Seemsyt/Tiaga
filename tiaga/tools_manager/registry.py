@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 from tiaga.config.config import Config
+from tiaga.hooks.hook_system import HookSystem
 from tiaga.safty.approval import ApprovalContext, ApprovalDecision, ApprovalManager
 from tiaga.tools_manager.buildin import get_all_builtin_tool
 from tiaga.tools_manager.base import Tool, ToolResult,ToolInvocation
@@ -13,6 +14,17 @@ class ToolRegistry:
         self._tools:dict[str,Tool] = {}
         self._mcp_tools:dict[str,Tool] = {}
         self.config = config
+
+
+    @property
+    def getmcp(self)->list[Tool]:
+        tools = []
+        for tool in self._mcp_tools.values():
+            tools.append(tool)
+        return tools
+    
+
+
     def register(self,tool:Tool):
         if tool.name in self._tools :
             logger.warning(f"Overwriting existing tool{tool.name}")
@@ -58,13 +70,18 @@ class ToolRegistry:
     
 
 
-    async def invoke(self,name:str,params:dict[str,Any],cwd,approval:ApprovalManager|None = None):
+    async def invoke(self,name:str,params:dict[str,Any],cwd,approval:ApprovalManager|None = None,hook_system:HookSystem|None = None):
         tool = self.get(name)
         if tool is None:
-            return ToolResult.error_result(f"tool does not exists {name}")
+            result = ToolResult.error_result(f"tool does not exists {name}")
+            await hook_system.trigger_after_tool(name,params,result)
+            return result
         validation_error =  tool.validate_params(params)
         if validation_error :
-            return ToolResult.error_result(f"Invalid parameters{validation_error}")
+            result = ToolResult.error_result(f"Invalid parameters{validation_error}")
+            await hook_system.trigger_after_tool(name,params,result)
+            return result
+        await hook_system.trigger_before_tool(name,params)
         invocation  = ToolInvocation( params,
             cwd,)
         
@@ -81,24 +98,31 @@ class ToolRegistry:
                 )
                 decision = await approval.check_approval(context=context)
                 if decision == ApprovalDecision.REJECTED:
-                    return ToolResult.error_result(
+                    result =  ToolResult.error_result(
                         f"Opration was rejected by safer policy"
                     )
+                    await hook_system.trigger_after_tool(name,params,result)
+                    return result
+
                 elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
                     approved =  approval.request_confirmation(confirmation)
                     if not approved :
-                        return ToolResult.error_result(
+                        result= ToolResult.error_result(
                         f"Opration was rejected by safer policy"
                     )
+                        await hook_system.trigger_after_tool(name,params,result)
+                        return result
 
         try:
             result = await tool.execute(invocation)
             return result
         except Exception as e :
             logger.exception(f"Tool {name}raise an {e}")
-            return ToolResult.error_result(
+            result =  ToolResult.error_result(
                 f"internal error {str(e)} for {name}"
             )
+            await hook_system.trigger_after_tool(name,params,result)
+            return result
 def create_default_registry(config:Config) -> ToolRegistry:
     registry = ToolRegistry(config=config)
     for tool_cls in get_all_builtin_tool():

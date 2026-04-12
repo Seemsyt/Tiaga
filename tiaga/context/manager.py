@@ -46,6 +46,16 @@ class ContextManager:
         
     
 
+    @property
+    def total_usage(self):
+        return self._total_usage
+
+    @total_usage.setter
+    def total_usage(self,value):
+        self._total_usage = value
+    @property
+    def len_msg(self):
+        return len(self.messages)
 
     # --- Add message ---
     def add_user_message(self, content:str):
@@ -193,6 +203,10 @@ class ContextManager:
             pruned_count +=1
 
         return pruned_count
+    
+
+    def clear(self)->None:
+        self.messages = []
 
         
 
