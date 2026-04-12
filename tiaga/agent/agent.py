@@ -48,9 +48,9 @@ class Agent:
                summary , usage =  await self.session.chat_compactor.compress(self.session.context_manager)
 
                if summary:
-                   self.session.context_manager.repplace_with_summary()
+                   self.session.context_manager.repplace_with_summary(summary=summary)
                    self.session.context_manager.latest_usage(usage)
-                   self.session.context_manager.update_usage()
+                   self.session.context_manager.update_usage(usage)
 
                 
 
