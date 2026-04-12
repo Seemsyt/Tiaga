@@ -4,21 +4,24 @@ from typing import Any,AsyncGenerator
 
 from dotenv import load_dotenv
 
+from tiaga.config.config import Config
+
 from .response import StreamEvent, StreamEventType, TextDelta,TokenUsage, ToolCall, ToolCallDelta, parse_tool_call_arguments
 load_dotenv()
 from os import getenv
 from openai import AsyncOpenAI, RateLimitError
 class LLM_client:
-    def __init__(self)->None:
+    def __init__(self,config:Config)->None:
         self.client :AsyncOpenAI|None = None
         self._max_retries:int|None = 3
+        self.config = config
        
     def get_client(self)->AsyncOpenAI:
         if self.client is None:
-           
+            
             self.client = AsyncOpenAI(
-            api_key=getenv("OPEN_ROUTER_API_KEY"),
-            base_url=getenv("BASE_URL"),
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
             )
         return self.client
         
@@ -80,12 +83,12 @@ class LLM_client:
 
             normalized.append(item)
         return normalized
-    async def chat_completion(self,message:list[dict[str,Any]],tools:list[dict[str,Any]]|None= None,stream:bool = True)->AsyncGenerator[StreamEvent]:
+    async def chat_completion(self,message:list[dict[str,Any]],tools:list[dict[str,Any]]|None= None,stream:bool = True)->AsyncGenerator[StreamEvent, None]:
         client = self.get_client()
         tools_calls:dict[int,dict[str,Any]] = {}
         normalized_messages = self._normalize_messages(message)
         kwargs = {
-                    "model":"qwen/qwen3.6-plus:free",
+                    "model":self.config.model_name,
                     "messages":normalized_messages,
                     "stream":stream
                 }

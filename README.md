@@ -1,192 +1,356 @@
 # Tiaga
 
-**Author:** seems kushwaha ([@seemsyt](https://github.com/seemsyt))
+**Author:** Seems Kushwaha (seemsyt)
 
-Tiaga is a terminal AI assistant with a Python backend, LangGraph agent loop, SQLite-backed session history, and an experimental Ink frontend.
+Tiaga is a powerful terminal-based AI assistant designed for coding and tool-assisted workflows in your local workspace. It provides an interactive TUI interface with comprehensive tool support, session persistence, and advanced configuration options.
 
-## What is supported
+## Features
 
-- Python chat CLI via `python -m tiaga` or `tiaga`
-- Session persistence in `~/.tiaga/chat_history.db`
-- File tools, web search, YouTube transcript lookup, and a text-only coding helper
-- Ink frontend talking to the Python backend through `tiaga.bridge`
-
-## Current frontend status
-
-- `tiaga.main` is the stable entrypoint today
-- `ink-cli/` is a real backend-connected rewrite, but it is still an active work-in-progress
-- `prompt_toolkit_tui.py` is legacy exploration, not the default app
+- **Interactive TUI Interface**: Rich terminal UI with real-time streaming responses
+- **Built-in Tools**: File operations (read, write, edit), shell execution, directory listing, search (grep, glob), web search, web fetch, YouTube transcript, todo management, memory storage
+- **MCP Support**: Model Context Protocol server integration for extended capabilities
+- **Session Persistence**: Save, resume, and checkpoint conversations
+- **Hooks System**: Execute custom commands/scripts at various trigger points
+- **Approval Policies**: Configurable approval for tool execution (on_request, on_failure, auto, auto_edit, never, yolo)
+- **Smart Context Management**: Automatic context compression when window limit is approached
+- **Loop Detection**: Prevents repetitive tool calls
+- **Multi-provider Support**: Compatible with OpenAI-style APIs (OpenRouter, etc.)
+- **Config Scopes**: User-level and project-level configuration
+- **Shell Environment Control**: Configurable environment variables and exclusion patterns
+- **Developer Instructions**: Custom system prompts at user and developer levels
 
 ## Installation
 
+Using pip:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+pip install tiaga
+```
+
+Or from source:
+
+```bash
+git clone <repository>
+cd tiaga
 pip install -e .
 ```
 
-Create a `.env` file in the repo root:
+## Configuration
+
+### Environment Variables
+
+Set these before running:
 
 ```env
-OPEN_ROUTER_API_KEY=your_api_key_here
+API_KEY=your_api_key_here
 BASE_URL=https://openrouter.ai/api/v1
 ```
 
-## Running the Python CLI
+Optional environment variable:
+- `TIAGA_DEBUG=1` - Enable debug logging
 
-```bash
-python -m tiaga
+### Configuration File
+
+Tiaga supports TOML configuration at two levels:
+
+1. **User config**: `~/.local/share/seems-tiaga/config.toml` (Linux) or equivalent
+2. **Project config**: `<project>/.seems-tiaga/config.toml` (overrides user config)
+
+Example `config.toml`:
+
+```toml
+[model]
+name = "stepfun/step-3.5-flash:free"
+temperature = 1.0
+
+[approval]
+policy = "on_request"  # or "on_failure", "auto", "auto_edit", "never", "yolo"
+
+[cwd]
+path = "/path/to/working/directory"
+
+[shell_environment]
+excludes_patterns = ["*KEY*", "*TOKEN*", "*SECRET*"]
+set_vars = { "CUSTOM_VAR" = "value" }
+
+[mcp_servers.example]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/files"]
+
+[hooks.pre_agent]
+trigger = "before_agent"
+command = "python3 hooks/before_agent.py"
+timeout_sec = 10
+enabled = true
+
+[max_turns] = 100
+[max_output_tokens] = 50000
+[debug] = true
 ```
 
-Or, after install:
+## Usage
+
+### Interactive Mode
 
 ```bash
 tiaga
 ```
 
-## Running the Ink CLI
-
-The Ink frontend needs Node.js and npm installed locally.
+Or with specific working directory:
 
 ```bash
-cd ink-cli
-npm install
-npm run build
-node dist/main.js
+tiaga --cwd /path/to/project
 ```
 
-During development:
+### Single Prompt Mode
 
 ```bash
-cd ink-cli
-npm install
-npm run dev
+tiaga "Write a Python function to calculate fibonacci numbers"
 ```
 
-## Testing
+### Command-line Options
 
-Use this checklist after setup.
+- `--cwd, -c`: Set the working directory (must exist)
 
-### 1. Backend install/import smoke test
+## CLI Commands
 
-```bash
-pip install -e .
-python -c "from tiaga.chat_engine import ChatEngine; print(ChatEngine()._normalize_thread_id(''))"
-python -c "from tiaga.graph import model; print(type(model).__name__)"
+During interactive sessions, use these slash commands:
+
+### Navigation & Control
+- `/help` - Show help
+- `/exit`, `/quit`, `/q` - Exit Tiaga
+- `/clear` - Clear conversation history and loop detector state
+
+### Configuration
+- `/config` - Show current configuration
+- `/config model <name>` - Change model
+- `/config base_url <url>` - Change base URL
+- `/config api_key <key>` - Change API key
+- `/config approval <policy>` - Change approval policy (on_request, on_failure, auto, auto_edit, never, yolo)
+
+### Model Management
+- `/model` - Show current model and token usage
+- `/model <name>` - Switch to a different model
+
+### Tools
+- `/tools` - List all available tools
+- `/mcp` - List MCP servers
+
+### Session Persistence
+- `/save` - Save current session
+- `/sessions` - List all saved sessions
+- `/resume <session_id>` - Resume a saved session
+- `/checkpoint` - Create a checkpoint of current session
+- `/checkpoints <session_id>` - List checkpoints for a session
+- `/restore <checkpoint_id>` - Restore from a checkpoint
+
+### Debug & Stats
+- `/stats` - Show session statistics (turns, tool calls, token usage, etc.)
+
+## CLI Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show this help message |
+| `/exit` / `/quit` / `/q` | Exit the application |
+| `/clear` | Clear conversation history |
+| `/config` | Display current configuration |
+| `/config model <name>` | Set LLM model |
+| `/config base_url <url>` | Set API base URL |
+| `/config api_key <key>` | Set API key |
+| `/config approval <policy>` | Set approval policy |
+| `/model` | Show current model and usage |
+| `/model <name>` | Change model |
+| `/tools` | List available tools |
+| `/mcp` | List MCP servers |
+| `/save` | Save session to disk |
+| `/sessions` | List saved sessions |
+| `/resume <id>` | Resume a saved session |
+| `/checkpoint` | Create checkpoint |
+| `/checkpoints <session_id>` | List checkpoints |
+| `/restore <checkpoint_id>` | Restore from checkpoint |
+| `/stats` | Show session statistics |
+| `/approval` | Show/change approval policy |
+
+## Approval Policies
+
+Control when tool executions require user approval:
+
+- `on_request` (default) - Ask for approval for each tool call
+- `on_failure` - Auto-approve, ask only if tool fails
+- `auto` - Auto-approve all tools (use with caution)
+- `auto_edit` - Auto-approve only file edit tools
+- `never` - Never ask for approval (not recommended)
+- `yolo` - No approval, no safety checks (dangerous!)
+
+Set with: `/config approval <policy>` or in config file.
+
+## Built-in Tools
+
+Tiaga includes these tools by default:
+
+| Tool | Description |
+|------|-------------|
+| `readfile` | Read file contents |
+| `writefile` | Write content to a file |
+| `editfile` | Edit file with search/replace |
+| `shell` | Execute shell commands |
+| `listdir` | List directory contents |
+| `grep` | Search text in files |
+| `glob` | Find files by pattern |
+| `websearch` | Search the web (DuckDuckGo) |
+| `webfetch` | Fetch URL content |
+| `youtube_scrapping` | Get YouTube video transcript |
+| `todo` | Manage task list |
+| `memory` | Store/retrieve persistent memory |
+
+## Project Layout
+
+```text
+tiaga/
+├── __init__.py           # Package init with warnings setup
+├── main.py               # CLI entry point, command handling
+├── hello.py              # Simple hello function
+├── dummy_script.py       # Example script
+│
+├── agent/                # Agent orchestration
+│   ├── agent.py          # Core Agent class with run loop
+│   ├── events.py         # AgentEvent types and definitions
+│   ├── session.py        # Session management, tool registry
+│   └── persistence.py    # Session checkpoint/save/load
+│
+├── client/               # LLM client layer
+│   ├── llm_client.py     # OpenAI-compatible client
+│   └── response.py       # Response parsing, token usage
+│
+├── config/               # Configuration management
+│   ├── config.py         # Config model (pydantic)
+│   └── loader.py         # Config loading & merging
+│
+├── context/              # Conversation context
+│   ├── manager.py        # Message history, token counting
+│   ├── prompts.py        # System prompts, loop breaker
+│   ├── text.py           # Text utilities
+│   └── compaction.py     # Context compression
+│
+├── hooks/                # Hook system
+│   └── hook_system.py    # Hook trigger management
+│
+├── safty/                # Safety/approval (note: typo in dir name)
+│   └── approval.py       # Approval manager, callbacks
+│
+├── scripts/              # Utility scripts
+│   └── test_tool.py      # Tool testing script
+│
+├── tools_manager/        # Tool infrastructure
+│   ├── base.py           # Base Tool class, ToolResult
+│   ├── registry.py       # ToolRegistry, tool discovery
+│   ├── subagent.py       # Sub-agent tool wrapper
+│   ├── discovery.py      # Tool discovery utilities
+│   ├── buildin/          # Built-in tools (12 tools)
+│   │   ├── readfile.py
+│   │   ├── writefile.py
+│   │   ├── editfile.py
+│   │   ├── shell.py
+│   │   ├── listdir.py
+│   │   ├── grep.py
+│   │   ├── glob.py
+│   │   ├── websearch.py
+│   │   ├── webfetch.py
+│   │   ├── youtube_scrapping.py
+│   │   ├── todo.py
+│   │   └── memory.py
+│   ├── mcp/              # MCP server integration
+│   │   ├── manager.py
+│   │   ├── transport.py
+│   │   └── types.py
+│   └── __init__.py
+│
+├── ui/                   # User interface
+│   ├── render.py         # TUI rendering, panels, streaming
+│   └── __init__.py
+│
+└── utils/                # Utilities
+    ├── config_setter.py  # Empty module
+    ├── erors.py          # Custom exceptions
+    ├── path.py           # Path utilities
+    └── __init__.py
+
+# Root level files
+├── pyproject.toml        # Project metadata, dependencies
+├── uv.lock               # Dependency lock file
+├── README.md             # This file
+├── test.py               # Simple test
+└── dist/                 # Build artifacts
 ```
 
-Expected:
+## Development
 
-- first command prints `session`
-- second command prints `ChatOpenAI`
+### Quick Check
 
-### 2. Python syntax check
+Verify the package compiles:
 
 ```bash
 python -m compileall tiaga
 ```
 
-### 3. Bridge smoke tests
-
-If you want isolated tests that do not touch your real session DB, set `TIAGA_DB_PATH` to a temporary file.
-
-List sessions:
+### Running Tests
 
 ```bash
-env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"list_sessions\"}\n' | python -m tiaga.bridge"
+python test.py
 ```
 
-Load one session history:
+### Building
 
 ```bash
-env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"get_history\",\"thread_id\":\"session-name\"}\n' | python -m tiaga.bridge"
+pip install build
+python -m build
 ```
 
-Stream one chat turn:
+## How It Works
 
-```bash
-env TIAGA_DB_PATH=/tmp/tiaga-test.db bash -lc "printf '{\"action\":\"chat\",\"thread_id\":\"smoke-test\",\"message\":\"say hello briefly\"}\n' | python -m tiaga.bridge"
+1. **Initialization**: Loads config from user and project scopes, sets up LLM client
+2. **Session Creation**: Creates a session with context manager, tool registry, and MCP manager
+3. **Message Processing**: User input is added to context, agent enters loop:
+   - Get tool schemas from registry
+   - Call LLM with context
+   - Stream response back to user
+   - Execute any tool calls (with approval if required)
+   - Add tool results to context
+   - Check for context compression need
+   - Repeat up to `max_turns`
+4. **Event Streaming**: Events (tool calls, text deltas, completions, errors) are yielded and rendered in TUI
+5. **Persistence**: Sessions can be saved and resumed at any point
+
+## Extensibility
+
+### Adding Custom Tools
+
+Create a Python file and register tools using the `@tool` decorator:
+
+```python
+from tiaga.tools_manager.base import tool, Tool
+from pydantic import BaseModel
+
+class MyInput(BaseModel):
+    param: str
+
+@tool
+def my_tool(input: MyInput) -> str:
+    """Tool description"""
+    return f"Result for {input.param}"
 ```
 
-Expected:
+### Adding MCP Servers
 
-- JSON output
-- chat requests end with `{"type": "done"}`
-- no permission prompt events
-- `get_history` only returns messages for a session that already exists
+Configure in `config.toml`:
 
-### 4. End-to-end Python CLI test
-
-Run:
-
-```bash
-python -m tiaga
+```toml
+[mcp_servers.my_server]
+command = "path/to/mcp/server"
+args = ["--flag", "value"]
 ```
 
-Then try:
+## License
 
-- `what files are in the current directory?`
-- `create a folder named tmp-demo`
-- `delete the folder tmp-demo`
-
-### 5. Ink frontend test
-
-After Node.js is installed:
-
-```bash
-cd ink-cli
-npm install
-npm run build
-node dist/main.js
-```
-
-Then verify:
-
-- existing sessions load instead of mock sessions
-- selecting a saved session loads history
-- sending a message streams assistant text
-- tool activity appears inline
-
-## Project layout
-
-```text
-.
-├── tiaga/
-│   ├── __init__.py
-│   ├── __main__.py
-│   ├── bridge.py
-│   ├── chat_engine.py
-│   ├── graph.py
-│   ├── main.py
-│   ├── prompt_toolkit_tui.py
-│   ├── stdio_bridge.py
-│   ├── utils.py
-│   ├── youtube_scrapping.py
-│   └── files_handling/
-│       └── file.py
-├── ink-cli/
-│   ├── src/
-│   │   ├── commands/
-│   │   ├── components/
-│   │   ├── engine/
-│   │   ├── main.tsx
-│   │   └── types.ts
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── tsup.config.ts
-├── .venv/
-├── dist/
-├── tiaga.egg-info/
-├── .git/
-├── .codex/
-├── .env
-├── .gitignore
-├── .python-version
-├── README.md
-├── package-lock.json
-├── pyproject.toml
-├── test.html
-├── test.py
-├── test_tui.py
-└── uv.lock
-```
+MIT

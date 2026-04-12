@@ -1,7 +1,7 @@
 from datetime import datetime
 import platform
-from config.config import Config
-from tools.base import Tool
+from tiaga.config.config import Config
+from tiaga.tools_manager.base import Tool
 
 
 def get_system_prompt(
@@ -25,18 +25,20 @@ def get_system_prompt(
     # Security guidelines
     parts.append(_get_security_section())
 
-    if config.developer_instructions:
-        parts.append(_get_developer_instructions_section(config.developer_instructions))
+    if config.developer_instruction:
+        parts.append(_get_developer_instructions_section(config.developer_instruction))
 
-    if config.user_instructions:
-        parts.append(_get_user_instructions_section(config.user_instructions))
+    if config.user_instruction:
+        parts.append(_get_user_instructions_section(config.user_instruction))
 
     if user_memory:
         parts.append(_get_memory_section(user_memory))
     # Operational guidelines
     parts.append(_get_operational_section())
 
-    return "\n\n".join(parts)
+    prompt = "\n\n".join(parts)
+    
+    return prompt
 
 
 def _get_identity_section() -> str:
