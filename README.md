@@ -24,7 +24,7 @@ Tiaga is a powerful terminal-based AI assistant designed for coding and tool-ass
 Using pip:
 
 ```bash
-pip install tiaga
+pip install tiaga or pipx install tiaga
 ```
 
 Or from source:

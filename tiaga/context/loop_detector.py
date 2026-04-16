@@ -25,9 +25,10 @@ class LoopDetector:
         self._history.append(signature)
 
     def check_for_loop(self)->str|None:
+        
         if len(self._history) < 2 :
             return
-        if len(self._history)<= self.max_exact_repeat:
+        if len(self._history)>= self.max_exact_repeat:
             recent = list(self._history)[-self.max_exact_repeat]
             if len(set(recent)) == 1 :
                 return f"Same action repeated for {self.max_exact_repeat} times "

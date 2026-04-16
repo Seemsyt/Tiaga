@@ -9,8 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
 
-from client.response import TokenUsage
-from config.loader import get_data_dir
+from tiaga.client.response import TokenUsage
+from tiaga.config.loader import get_data_dir
 
 
 @dataclass
