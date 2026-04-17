@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from tiaga.config.config import ApprovalPolicy
 from tiaga.tools_manager.base import ToolConfirmation

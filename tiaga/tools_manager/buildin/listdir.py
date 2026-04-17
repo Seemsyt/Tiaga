@@ -151,7 +151,7 @@ class ListDir(Tool):
             counter["total"] += 1
 
             # Recurse into directories (but not symlinked dirs to avoid loops)
-            if entry.is_dir(follow_symlinks=False):
+            if entry.is_dir():
                 self._build_tree(
                     path=entry,
                     lines=lines,
@@ -184,8 +184,8 @@ class ListDir(Tool):
             entries = [e for e in entries if not e.name.startswith(".")]
 
         # Dirs first, then files — both sorted alphabetically
-        dirs = sorted([e for e in entries if e.is_dir(follow_symlinks=False)])
-        files = sorted([e for e in entries if not e.is_dir(follow_symlinks=False)])
+        dirs = sorted([e for e in entries if e.is_dir()])
+        files = sorted([e for e in entries if not e.is_dir()])
         return dirs + files
 
     def _format_entry(self, entry: Path, parent: Path) -> str:
@@ -195,7 +195,7 @@ class ListDir(Tool):
         # Type suffix
         if entry.is_symlink():
             suffix = "@"  # symlink
-        elif entry.is_dir(follow_symlinks=False):
+        elif entry.is_dir():
             suffix = "/"  # directory
         elif self._is_executable(entry):
             suffix = "*"  # executable
@@ -204,7 +204,7 @@ class ListDir(Tool):
 
         # File size for files
         meta = ""
-        if entry.is_file(follow_symlinks=False):
+        if entry.is_file():
             try:
                 size = entry.stat().st_size
                 meta = f"  ({self._human_size(size)})"

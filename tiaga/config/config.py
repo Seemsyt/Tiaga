@@ -74,7 +74,21 @@ class HookConfig(BaseModel):
             raise ValueError("Hook must either have 'command' or 'script'")
         return self
 
+
+
+class VoiceConfig(BaseModel):
+    enabled: bool = False
+    groq_api_key: str | None = None          
+    openai_api_key: str | None = None        
+    openai_tts_voice: str = "alloy"         
+    openai_tts_model: str = "tts-1"         
+    wake_word_model: str = "hey tiaga"     
+    wake_word_threshold: float = 0.5         
+    vad_silence_threshold: float = 0.8       
+    vad_aggressiveness: int = 2              
+
 class Config(BaseModel):
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     model:ModelConfig = Field(default_factory=ModelConfig)
     api_key_value:str|None = Field(default=None,alias="api_key")
     base_url_value:str|None = Field(default=None,alias="base_url")
@@ -84,7 +98,7 @@ class Config(BaseModel):
     hooks:list[HookConfig] = Field(default_factory=HookConfig)
     approval:ApprovalPolicy = ApprovalPolicy.ON_REQUEST
     mcp_servers:dict[str,MCPServersConfig] = Field(...,default_factory=dict) 
-    max_turns:int = 100
+    max_turns:int = 50
     max_output_tokens:int = 50000
     allowed_tools:list[str]|None = Field(
         default=None,
@@ -137,6 +151,15 @@ class Config(BaseModel):
         self.model.temperature = value
 
     
+    @property
+    def groq_api_key(self) -> str | None:
+        return os.environ.get("GROQ_API_KEY") or self.groq_api_key_value
+
+    @property
+    def openai_api_key(self) -> str | None:
+        return os.environ.get("OPENAI_API_KEY") or self.openai_api_key_value
+
+
     def validate_config(self) -> list[str]:
         errors:list[str] = []
          

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -15,6 +16,14 @@ from tiaga.agent.agent import Agent,AgentEventType
 
 console = _get_console()
 
+LOGO = """\
+████████╗██╗ █████╗  ██████╗  █████╗ 
+╚══██╔══╝██║██╔══██╗██╔════╝ ██╔══██╗
+   ██║   ██║███████║██║  ███╗███████║
+   ██║   ██║██╔══██║██║   ██║██╔══██║
+   ██║   ██║██║  ██║╚██████╔╝██║  ██║
+   ╚═╝   ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝
+"""
 
 
 
@@ -25,18 +34,24 @@ class CLI():
         self.tui = TUI(console=console,config=config)
         self.assistant_streaming = False
 
+    def _ui_note(self, text: str) -> None:
+        self.tui.post_message(text)
         
 
-    def get_tool_kind(self,tool_name):
-        tool= self.agent.session.tool_registry.get(tool_name)
+
+
+
+    def get_tool_kind(self, tool_name):
+        if not self.agent:
+            return None
+        tool = self.agent.session.tool_registry.get(tool_name)
         if tool:
-            tool_kind= tool.tool_kind.value
-            return tool_kind
+            return tool.tool_kind.value
         return None
 
     async def run_interactive(self):
 
-        self.tui.print_welcome('Tiaga',lines=[
+        self.tui.print_welcome(LOGO,lines=[
             f"model:{self.config.model_name} ",
             f"cwd:{self.config.cwd} ",
             f"command: /help /exit /config /approval /model"
@@ -45,9 +60,7 @@ class CLI():
             self.agent = agent
             while True:
                 try:
-                    user_input = console.input(f"\n[user]>[/user]").strip()
-                    if user_input.lower().strip() == "/exit":
-                        break
+                    user_input = self.tui.prompt_user().strip()
                     if user_input.startswith('/'):
                         should_continue = await  self.handle_command(user_input)
                         if not should_continue:
@@ -57,18 +70,19 @@ class CLI():
                         continue
                     await self._process_message(user_input)
                 except KeyboardInterrupt:
-                    console.print(f"\n[dim] use /exit to quit[/dim]")
+                    self._ui_note("Use /exit to quit.")
                 except EOFError:
                     break           
-            console.print(f"\n[dim]Goodbye[/dim]")
+            self._ui_note("Goodbye.")
         
 
 
     async def run_single(self,message):
         async with Agent(self.config) as agent:
             self.agent = agent
-            if await self._handle_local_command(message):
-                return ""
+            if message.startswith("/"):
+                should_continue = await self.handle_command(message)
+                return "" if should_continue else None
             return await self._process_message(message)
 
     
@@ -79,6 +93,9 @@ class CLI():
         if not self.agent:
             return None
         final_response = None
+        if not self.assistant_streaming:
+            self.assistant_streaming = True
+            self.tui.begin_streaming("Thinking...")
         async for event in self.agent.run(message):
 
 
@@ -86,6 +103,9 @@ class CLI():
                 tool_name = event.data.get("name","unknown")
                 tool_kind = self.get_tool_kind(tool_name=tool_name)
                 self.tui.render_tool_call_start(event.data.get('call_id',""), tool_kind, tool_name, event.data.get("arguments",{}))
+                # Give the UI thread a moment to paint the running tool card
+                # before potentially blocking tool execution begins.
+                await asyncio.sleep(0.03)
 
             elif event.type == AgentEventType.TOOL_CALL_END:
 
@@ -107,9 +127,6 @@ class CLI():
             elif event.type == AgentEventType.TEXT_DELTA:
 
                 content = event.data.get("content","")
-                if not self.assistant_streaming:
-                    self.assistant_streaming = True
-                    self.tui.begin_streaming()
                 self.tui.stream_assistant_delta(content=content)
 
 
@@ -121,13 +138,20 @@ class CLI():
 
 
             elif event.type == AgentEventType.AGENT_ERROR:
-                error = event.data.get("error","Unknown error")
-                console.log(f"\n[error]Error:{error}[/error]")
+                error = event.data.get("error", "Unknown error")
+
                 if self.assistant_streaming:
+                    # overwrite the "Thinking..." block
+                    self.tui.stream_assistant_delta(f"❌ Error: {error}")
                     self.tui.end_assistance()
-                    self.assistant_streaming = False 
+                    self.assistant_streaming = False
+                else:
+                    self._ui_note(f"Error: {error}") 
             elif event.type == AgentEventType.AGENT_END:
                 usage_data = event.data.get("usage")
+                if self.assistant_streaming:
+                    self.tui.end_assistance()
+                    self.assistant_streaming = False
   
 
 
@@ -140,64 +164,58 @@ class CLI():
 
 
         if cmd_name in ["/exit","/quit","/q"]:
+            self._ui_note("Exiting Tiaga...")
+            self.tui.shutdown()
             return False
-        
         elif cmd_name == "/help":
             self.tui.show_help()
         elif cmd_name == "/clear":
             self.agent.session.context_manager.clear() 
             self.agent.session.loop_detector.clear_history()
-            console.print(f"[success]Conversation History was cleared[/success]")
+            self._ui_note("Conversation history was cleared.")
         elif cmd_name == "/config":
-            console.print("\n[bold]Current Configuration[/bold]")
-            console.print(f"  Model: {self.config.model_name}")
-            console.print(f"  Temperature: {self.config.temperature}")
-            console.print(f"  Approval: {self.config.approval.value}")
-            console.print(f"  Working Dir: {self.config.cwd}")
-            console.print(f"  Max Turns: {self.config.max_turns}")
-            console.print(f"  Hooks Enabled: {self.config.hooks_enabled}")
+            self._ui_note(
+                "Current Configuration\n"
+                f"Model: {self.config.model_name}\n"
+                f"Temperature: {self.config.temperature}\n"
+                f"Approval: {self.config.approval.value}\n"
+                f"Working Dir: {self.config.cwd}\n"
+                f"Max Turns: {self.config.max_turns}\n"
+                f"Hooks Enabled: {self.config.hooks_enabled}"
+            )
         elif cmd_name == "/model":
             if cmd_args:
                 self.config.model_name = cmd_args
-                console.print(f"[success]Model changed to: {cmd_args} [/success]")
-            console.print(f"Current model : {self.config.model_name}")
+                self._ui_note(f"Model changed to: {cmd_args}")
+            self._ui_note(f"Current model: {self.config.model_name}")
 
         elif cmd_name == "/approval":
             if cmd_args:
                 try:
                     approval = ApprovalPolicy(cmd_args)
                     self.config.approval = approval
-                    console.print(
-                        f"[success]Approval policy changed to: {cmd_args} [/success]"
-                    )
+                    self._ui_note(f"Approval policy changed to: {cmd_args}")
                 except:
-                    console.print(
-                        f"[error]Incorrect approval policy: {cmd_args} [/error]"
-                    )
-                    console.print(
-                        f"Valid options: {', '.join(p for p in ApprovalPolicy)}"
-                    )
+                    self._ui_note(f"Incorrect approval policy: {cmd_args}")
+                    self._ui_note(f"Valid options: {', '.join(p for p in ApprovalPolicy)}")
             else:
-                console.print(f"Current approval: {self.config.approval.value}")
+                self._ui_note(f"Current approval: {self.config.approval.value}")
         
         elif cmd_name == "/stats":
             stats = self.agent.session.get_stats()
-            console.print("\n[bold]Stats statics [/bold]")
-            
-            for k,value in stats.items():
-                console.print(f" {k}: {value}") 
+            lines = [f"{k}: {value}" for k, value in stats.items()]
+            self._ui_note("Stats\n" + "\n".join(lines))
 
         elif cmd_name == "/tools":
             tools = self.agent.session.tool_registry.get_tools()
-            console.print(f"\n[bold]Available tools ({len(tools)}) [/bold]")
-            for tool in tools:
-                console.print(f"  • {tool.name}")
+            tool_lines = [tool.name for tool in tools]
+            self._ui_note(f"Available tools ({len(tools)})\n" + "\n".join(tool_lines))
 
         elif cmd_name == "/mcp":
             mcp_servers = self.agent.session.tool_registry.getmcp
-            console.print(f"\n[bold]MCP Servers ({len(mcp_servers)}) [/bold]")
+            self._ui_note(f"MCP Servers ({len(mcp_servers)})")
             for server in mcp_servers:
-                console.print(f" • {server.name}")
+                self._ui_note(f"• {server.name}")
         elif cmd_name == "/save":
             persistence_manager = PersistenceManager()
             session_snapshot =SessionSnapshot(
@@ -209,36 +227,36 @@ class CLI():
                 total_usage=self.agent.session.context_manager.total_usage,
             )
             persistence_manager.save_session(session_snapshot)
-            console.print(f"[success] session saved {self.agent.session.session_id} [/success]")
+            self._ui_note(f"Session saved: {self.agent.session.session_id}")
         elif cmd_name =="/sessions":
             persistence_manager = PersistenceManager()
             sessions = persistence_manager.list_sessions()
-            console.print(f"[bold] Saved Session [/bold]")
+            self._ui_note("Saved Session")
             for s in sessions:
-              console.print(
-                f"[success]•{s['session_id']}[/success] "
+              self._ui_note(
+                f"• {s['session_id']} "
                 f"updated: {s['updated_at']}  turns: {s['turn_count']}"
                     )
         elif cmd_name =="/checkpoints":
             persistence_manager = PersistenceManager()
             if not cmd_args:
-                console.log(f"[error]session args are required to list checkpoint [/error]")
+                self._ui_note("session args are required to list checkpoints")
             else :
                 checkpoints = persistence_manager.list_checkpoints(cmd_args.strip())
-                console.print(f"[bold] Saved Checkpoints [/bold]")
+                self._ui_note("Saved Checkpoints")
                 for s in checkpoints:
-                    console.print(
+                    self._ui_note(
                         s
                             )
         elif cmd_name == "/resume":
             if not cmd_args:
-                console.print(f"[error]Usage: /resume <session_id> [/error]")
+                self._ui_note("Usage: /resume <session_id>")
             else :
                 persistence_manager = PersistenceManager()
 
                 snapshot = persistence_manager.load_session(cmd_args.strip())
                 if not snapshot:
-                    console.print(f"[error]Session does not exist [/error]")
+                    self._ui_note("Session does not exist")
                 else :
                     session = Session(config=self.config)
                     await session.initialize()
@@ -260,7 +278,7 @@ class CLI():
                     await self.agent.session.client.close_client()
                     
                     self.agent.session = session
-                    console.print(f"[success]Session resumed {session.session_id} [/success]")
+                    self._ui_note(f"Session resumed {session.session_id}")
 
         elif cmd_name == "/checkpoint":
             persistence_manager = PersistenceManager()
@@ -273,16 +291,16 @@ class CLI():
                 total_usage=self.agent.session.context_manager.total_usage,
             )
             checkpoint_id = persistence_manager.save_checkpoint(session_snapshot)
-            console.print(f"[success] checkpoint saved {checkpoint_id} [/success]")
+            self._ui_note(f"checkpoint saved {checkpoint_id}")
         elif cmd_name == "/restore":
             if not cmd_args:
-                console.print(f"[error]Usage: /restore <session_id> [/error]")
+                self._ui_note("Usage: /restore <session_id>")
             else :
                 persistence_manager = PersistenceManager()
 
                 snapshot = persistence_manager.load_checkpoint(cmd_args.strip())
                 if not snapshot:
-                    console.print(f"[error]Session does not exist [/error]")
+                    self._ui_note("Session does not exist")
                 else :
                     session = Session(config=self.config)
                     await session.initialize()
@@ -304,11 +322,11 @@ class CLI():
                     await self.agent.session.client.close_client()
                     
                     self.agent.session = session
-                    console.print(f"[success]Session resumed {session.session_id} and checkpoint {cmd_args} [/success]")
+                    self._ui_note(f"Session resumed {session.session_id} and checkpoint {cmd_args}")
 
 
         else :
-            console.print(f"[error] Unknown command {cmd_name}[/error]")
+            self._ui_note(f"Unknown command {cmd_name}")
         return True
 
                 

@@ -1,6 +1,6 @@
 [project]
 name = "tiaga"
-version = "0.1.43"
+version = "0.1.48"
 authors = [{name = "Seems kushwaha"}]
 description = "A CLI tool"
 readme = "README.md"
@@ -19,6 +19,8 @@ dependencies = [
     "tomli>=2.4.1",
     "youtube-transcript-api>=1.2.4",
     "ddgs>=9.13.0",
+    "fastmcp>=3.2.3",
+    "textual>=0.86.1",
 ]
 [project.scripts]
 tiaga = "tiaga.main:main"

@@ -57,7 +57,8 @@ class ToolResult:
 
     @classmethod
     def error_result(
-        cls,error:str,output:str = ""
+        cls,error:str,output:str = "",
+        **kwargs,
     ):
         return cls(success=False,output=output,error=error)
     @classmethod
