@@ -219,6 +219,11 @@ class TUI:
         self._first_token_seen = False
         self._post(self._ensure_app().chat.end_assistant_block)
 
+    def set_streaming_text(self, text: str) -> None:
+        if not self._streaming:
+            return
+        self._post(self._ensure_app().chat.set_current_assistant_text, text)
+
     # ── plan panel ───────────────────────────────────────────────────────────
 
     def post_plan(self, items: list[tuple[str, str]]) -> None:

@@ -33,6 +33,8 @@ class CLI():
         self.agent:Agent|None = None
         self.tui = TUI(console=console,config=config)
         self.assistant_streaming = False
+        self._pending_plan_steps: dict[int, dict[str, str]] = {}
+        self._active_plan_step: dict[str, str] | None = None
 
     def _ui_note(self, text: str) -> None:
         self.tui.post_message(text)
@@ -48,6 +50,69 @@ class CLI():
         if tool:
             return tool.tool_kind.value
         return None
+
+    def _format_plan_items(self, plan_steps) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
+        for idx, step in enumerate(plan_steps):
+            status = "active" if idx == 0 else "pending"
+            items.append((f"{step.step}. {step.task} ({step.tool})", status))
+        return items
+
+    def _clear_plan(self) -> None:
+        self._pending_plan_steps = {}
+        self._active_plan_step = None
+
+    def _dispatch_next_plan_step(self) -> None:
+        if self._active_plan_step is not None:
+            return
+        if not self._pending_plan_steps:
+            return
+        next_key = sorted(self._pending_plan_steps.keys())[0]
+        next_step = self._pending_plan_steps.pop(next_key)
+        next_step["status"] = "active"
+        self._active_plan_step = next_step
+        self.tui.post_plan([(next_step["label"], next_step["status"])])
+
+    def _set_plan(self, plan_steps) -> None:
+        self._clear_plan()
+        for idx, step in enumerate(plan_steps, start=1):
+            step_number = int(getattr(step, "step", idx) or idx)
+            while step_number in self._pending_plan_steps:
+                step_number += 1
+            self._pending_plan_steps[step_number] = (
+                {
+                    "label": f"{step.step}. {step.task} ({step.tool})",
+                    "tool": (step.tool or "").strip(),
+                    "status": "pending",
+                }
+            )
+        self._dispatch_next_plan_step()
+
+    def _track_tool_start(self, tool_name: str) -> None:
+        if self._active_plan_step is None:
+            self._dispatch_next_plan_step()
+        if self._active_plan_step is None:
+            return
+        if self._active_plan_step["tool"] == tool_name:
+            return
+
+    def _track_tool_end(self, tool_name: str, success: bool) -> None:
+        if self._active_plan_step is None or not success:
+            return
+        if self._active_plan_step["tool"] != tool_name:
+            return
+        self._active_plan_step["status"] = "done"
+        self.tui.post_plan([(self._active_plan_step["label"], self._active_plan_step["status"])])
+        self._active_plan_step = None
+        self._dispatch_next_plan_step()
+
+    async def _planning_spinner(self, stop_event: asyncio.Event) -> None:
+        frames = ["◜", "◠", "◝", "◞", "◡", "◟"]
+        idx = 0
+        while not stop_event.is_set():
+            self.tui.set_streaming_text(frames[idx % len(frames)])
+            idx += 1
+            await asyncio.sleep(0.12)
 
     async def run_interactive(self):
 
@@ -68,6 +133,37 @@ class CLI():
                         continue
                     if not user_input:
                         continue
+                    self._ui_note(f"You: {user_input}")
+                    tool_names = [tool.name for tool in self.agent.session.tool_registry.get_tools()]
+                    spinner_stop = asyncio.Event()
+                    spinner_task: asyncio.Task | None = None
+                    if not self.assistant_streaming:
+                        self.assistant_streaming = True
+                        self.tui.begin_streaming("◜")
+                        spinner_task = asyncio.create_task(self._planning_spinner(spinner_stop))
+                    try:
+                        plan = await asyncio.wait_for(
+                            self.agent.session.planner.create_plan(
+                                user_query=user_input,
+                                available_tools=tool_names,
+                            ),
+                            timeout=1.5,
+                        )
+                        if plan:
+                            self._set_plan(plan)
+                        else:
+                            self._clear_plan()
+                    except TimeoutError:
+                        self._clear_plan()
+                    except Exception:
+                        self._clear_plan()
+                    finally:
+                        spinner_stop.set()
+                        if spinner_task:
+                            await spinner_task
+                        if self.assistant_streaming:
+                            self.tui.end_assistance()
+                            self.assistant_streaming = False
                     await self._process_message(user_input)
                 except KeyboardInterrupt:
                     self._ui_note("Use /exit to quit.")
@@ -101,6 +197,7 @@ class CLI():
 
             if event.type == AgentEventType.TOOL_CALL_START:
                 tool_name = event.data.get("name","unknown")
+                self._track_tool_start(tool_name)
                 tool_kind = self.get_tool_kind(tool_name=tool_name)
                 self.tui.render_tool_call_start(event.data.get('call_id',""), tool_kind, tool_name, event.data.get("arguments",{}))
                 # Give the UI thread a moment to paint the running tool card
@@ -110,6 +207,7 @@ class CLI():
             elif event.type == AgentEventType.TOOL_CALL_END:
 
                 tool_name = event.data.get("name","unknown")
+                self._track_tool_end(tool_name, event.data.get("success", False))
                 tool_kind = self.get_tool_kind(tool_name=tool_name)
                 self.tui.render_tool_call_end(
                     event.data.get("call_id",""),

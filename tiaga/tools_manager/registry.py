@@ -6,6 +6,7 @@ from tiaga.safty.approval import ApprovalContext, ApprovalDecision, ApprovalMana
 from tiaga.tools_manager.buildin import get_all_builtin_tool
 from tiaga.tools_manager.base import Tool, ToolResult,ToolInvocation
 from tiaga.tools_manager.subagent import SubagentTool, get_default_subagent_definition
+from tiaga.tracing.trace import Trace
 
 logger  = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class ToolRegistry:
     
 
 
-    async def invoke(self,name:str,params:dict[str,Any],cwd,approval:ApprovalManager|None = None,hook_system:HookSystem|None = None):
+    async def invoke(self,name:str,params:dict[str,Any],cwd,approval:ApprovalManager|None = None,hook_system:HookSystem|None = None,trace_system:Trace = None):
         tool = self.get(name)
         if tool is None:
             result = ToolResult.error_result(f"tool does not exists {name}")
@@ -81,6 +82,8 @@ class ToolRegistry:
             result = ToolResult.error_result(f"Invalid parameters{validation_error}")
             await hook_system.trigger_after_tool(name,params,result)
             return result
+        if trace_system:
+            trace_system.trace_before_tool(name,params)
         await hook_system.trigger_before_tool(name,params)
         invocation  = ToolInvocation( params,
             cwd,)
@@ -115,12 +118,17 @@ class ToolRegistry:
 
         try:
             result = await tool.execute(invocation)
+            if trace_system:
+                trace_system.trace_after_tool(name,params,result)
+            await hook_system.trigger_after_tool(name,params,result)
             return result
         except Exception as e :
             logger.exception(f"Tool {name}raise an {e}")
             result =  ToolResult.error_result(
                 f"internal error {str(e)} for {name}"
             )
+            if trace_system:
+                trace_system.trace_after_tool(name,params,result)
             await hook_system.trigger_after_tool(name,params,result)
             return result
 def create_default_registry(config:Config) -> ToolRegistry:

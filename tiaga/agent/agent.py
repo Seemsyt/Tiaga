@@ -22,6 +22,7 @@ class Agent:
         self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str):
+        self.session.trace_system.trace_before_agent(user_message=message)
         await self.session.hook_system.trigger_before_agent(message)
         yield AgentEvent.agent_start(messages=message)
         self.session.context_manager.add_user_message(message)
@@ -31,7 +32,7 @@ class Agent:
             yield event
             if event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content", "")
-                
+        self.session.trace_system.trace_after_agent(message,final_response)
         await self.session.hook_system.trigger_after_agent(message,final_response)
 
         yield AgentEvent.agent_end(response=final_response)
@@ -39,6 +40,9 @@ class Agent:
     async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
         max_turn = self.config.max_turns
         consecutive_tool_only_turns = 0
+        executed_tools = False
+        summary_retry_count = 0
+        max_summary_retries = 2
 
         for turn_num in range(max_turn):
             self.session.increament_turn()
@@ -82,6 +86,7 @@ class Agent:
                     usage = event.usage
 
                 elif event.type == StreamEventType.ERROR:
+
                     yield AgentEvent.agent_error(
                         detail=None,
                         error=event.error or "Unknown error occurred.",
@@ -98,16 +103,17 @@ class Agent:
                         "arguments": json.dumps(tool_call.arguments or {}),
                     },
                 })
+            has_response_text = bool(response_text and response_text.strip())
 
             # Always save assistant message before any return
-            if response_text or assistant_tool_calls:
+            if has_response_text or assistant_tool_calls:
                 self.session.context_manager.add_assistant_message(
                     response_text or "",
                     tool_calls=assistant_tool_calls,
                 )
 
             # Clean exit: LLM responded with text and no tool calls
-            if response_text and not tools_calls:
+            if has_response_text and not tools_calls:
                 if usage:
                     self.session.context_manager.latest_usage(usage)
                     self.session.context_manager.update_usage(usage)
@@ -116,7 +122,7 @@ class Agent:
                 return
 
             # Track consecutive tool-only turns (no text response)
-            if tools_calls and not response_text:
+            if tools_calls and not has_response_text:
                 consecutive_tool_only_turns += 1
             else:
                 consecutive_tool_only_turns = 0
@@ -128,11 +134,32 @@ class Agent:
                 )
                 consecutive_tool_only_turns = 0
 
-            if response_text:
+            if has_response_text:
                 yield AgentEvent.text_complete(response_text)
                 self.session.loop_detector.record_actions("response", text=response_text)
+                summary_retry_count = 0
 
             if not tools_calls:
+                if not has_response_text and executed_tools and summary_retry_count < max_summary_retries:
+                    # Guard against silent completion after tool execution.
+                    self.session.context_manager.add_user_message(
+                        "Provide your final response to the user based on the tool results above. "
+                        "Do not call more tools unless absolutely necessary. "
+                        "Give a concise, user-facing answer now."
+                    )
+                    summary_retry_count += 1
+                    continue
+                if not has_response_text and executed_tools:
+                    fallback = (
+                        "I completed tool execution, but I could not generate the final summary text. "
+                        "Please ask me to summarize again and I will provide it directly."
+                    )
+                    yield AgentEvent.text_complete(fallback)
+                    if usage:
+                        self.session.context_manager.latest_usage(usage)
+                        self.session.context_manager.update_usage(usage)
+                    self.session.context_manager.pruning_tool_outputs()
+                    return
                 if usage:
                     self.session.context_manager.latest_usage(usage)
                     self.session.context_manager.update_usage(usage)
@@ -158,6 +185,7 @@ class Agent:
                     self.config.cwd,
                     self.session.approval_manager,
                     self.session.hook_system,
+                    self.session.trace_system,
                 )
 
                 if not isinstance(result, ToolResult):
@@ -166,6 +194,7 @@ class Agent:
                     )
 
                 yield AgentEvent.tool_call_complete(call_id, tool_call.name, result)
+                executed_tools = True
                 tool_call_results.append(ToolResultMessage(
                     tool_call_id=call_id,
                     content=result.to_model_output(),

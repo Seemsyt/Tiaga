@@ -253,6 +253,16 @@ class ChatScreen(Screen):
         self._assistant_placeholder_active = False
         self._current_assistant = None
 
+    def set_current_assistant_text(self, text: str) -> None:
+        """Replace the current streaming assistant block text in-place."""
+        if self._current_assistant is None:
+            return
+        self._current_assistant.set_text(text)
+        # Keep placeholder mode so end_assistant_block can remove this
+        # loading-only block if no real assistant content arrives.
+        self._assistant_placeholder_active = True
+        self._scroll().scroll_end(animate=False)
+
     async def add_tool_start(
         self,
         call_id: str,

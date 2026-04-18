@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-
+print("hello world")
 import os
 import sys
 import json
 from datetime import datetime
 import uuid
-
+from tiaga.config.loader import get_data_dir
 
 def main():
     trigger = os.environ.get("AI_AGENT_TRIGGER")
@@ -23,7 +23,8 @@ def main():
         "error": error,
     }
     hook_id = uuid.uuid4()
-    log_path = os.path.expanduser("/home/seems/Desktop/ai-agent/hook.log")
+    
+    log_path = get_data_dir()/"logs"/"traces.log"
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "a") as f:
         f.write(f"[HOOK] hook_id:{hook_id}, {json.dumps(log_data)}\n")

@@ -3,6 +3,7 @@ import json
 from typing import Any
 import uuid
 
+from tiaga.agent.planner import Planner
 from tiaga.client.llm_client import LLM_client
 from tiaga.config.config import Config 
 from tiaga.config.loader import get_data_dir
@@ -14,6 +15,7 @@ from tiaga.safty.approval import ApprovalManager
 from tiaga.tools_manager.discovery import ToolDiscoveryManger
 from tiaga.tools_manager.mcp.mcp_manager import MCPManager
 from tiaga.tools_manager.registry import create_default_registry
+from tiaga.tracing.trace import Trace
 
 
 
@@ -29,6 +31,8 @@ class Session:
         self.context_manager:ContextManager|None = None
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
+        self.trace_system = Trace()
+        self.planner = Planner(self.client)
         self.approval_manager = ApprovalManager(self.config.approval,self.config.cwd)
         self.session_id = str(uuid.uuid4())
         self.chat_compactor = ChatCompaction(self.client)

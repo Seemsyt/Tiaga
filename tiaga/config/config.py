@@ -95,7 +95,7 @@ class Config(BaseModel):
     cwd:Path = Field(default_factory=Path.cwd)
     shell_environment:ShellEnvironmentPolicy = Field(default_factory=ShellEnvironmentPolicy)
     hooks_enabled:bool = False
-    hooks:list[HookConfig] = Field(default_factory=HookConfig)
+    hooks: list[HookConfig] = Field(default_factory=list)
     approval:ApprovalPolicy = ApprovalPolicy.ON_REQUEST
     mcp_servers:dict[str,MCPServersConfig] = Field(...,default_factory=dict) 
     max_turns:int = 50

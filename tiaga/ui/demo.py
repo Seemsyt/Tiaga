@@ -106,6 +106,20 @@ class DemoChatScreen(App):
 
     async def _run_demo(self) -> None:
         await asyncio.sleep(0.4)
+        plan: PlanPanel | None = None
+        plan_items = [list(item) for item in PLAN_ITEMS]
+
+        def _refresh_plan() -> None:
+            nonlocal plan
+            if plan is not None:
+                plan.set_items([(label, status) for label, status in plan_items])
+
+        def _complete_step(index: int) -> None:
+            if 0 <= index < len(plan_items):
+                plan_items[index][1] = "done"
+                if index + 1 < len(plan_items) and plan_items[index + 1][1] == "pending":
+                    plan_items[index + 1][1] = "active"
+                _refresh_plan()
 
         # ── tool call 1: find ──────────────────────────────────────────────
         tool1 = ToolCallBlock(
@@ -189,9 +203,50 @@ class DemoChatScreen(App):
         await asyncio.sleep(0.3)
 
         # ── plan panel ────────────────────────────────────────────────────
-        plan = PlanPanel(items=PLAN_ITEMS)
+        plan = PlanPanel(items=[(label, status) for label, status in plan_items])
         await self._scroll().mount(plan)
         self._scroll().scroll_end(animate=False)
+        await asyncio.sleep(0.6)
+
+        # ── plan tracker progress demo ────────────────────────────────────
+        tool4 = ToolCallBlock(
+            call_id="jkl33445",
+            tool_kind="shell",
+            name="shell",
+            arguments={"command": "download video clip"},
+        )
+        await self._scroll().mount(tool4)
+        await asyncio.sleep(0.8)
+        tool4.mark_done(success=True, output_renderables=[Text("Downloaded stock footage.", style="#a6e3a1")])
+        _complete_step(0)
+        self._scroll().scroll_end(animate=False)
+        await asyncio.sleep(0.5)
+
+        tool5 = ToolCallBlock(
+            call_id="mno55667",
+            tool_kind="write",
+            name="edit_file",
+            arguments={"path": "./index.html"},
+        )
+        await self._scroll().mount(tool5)
+        await asyncio.sleep(0.8)
+        tool5.mark_done(success=True, output_renderables=[Text("Inserted <video> background block.", style="#a6e3a1")])
+        _complete_step(1)
+        self._scroll().scroll_end(animate=False)
+        await asyncio.sleep(0.5)
+
+        tool6 = ToolCallBlock(
+            call_id="pqr77889",
+            tool_kind="write",
+            name="edit_file",
+            arguments={"path": "./styles.css"},
+        )
+        await self._scroll().mount(tool6)
+        await asyncio.sleep(0.8)
+        tool6.mark_done(success=True, output_renderables=[Text("Updated overlay and contrast styles.", style="#a6e3a1")])
+        _complete_step(2)
+        self._scroll().scroll_end(animate=False)
+        await asyncio.sleep(0.3)
 
         # ── hint ──────────────────────────────────────────────────────────
         hint = Static(
