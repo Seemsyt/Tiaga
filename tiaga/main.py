@@ -161,7 +161,7 @@ class CLI():
                         continue
                     if not user_input:
                         continue
-                    self._ui_note(f"You: {user_input}")
+                    self.tui.add_user_message(user_input)
                     await self._process_message(user_input)
                     self._persist_session()
                 except KeyboardInterrupt:
@@ -192,6 +192,8 @@ class CLI():
             return None
         self.agent.session.increment_turn()
         final_response = None
+        plan_phase_done = False
+        final_started = False
         if not self.assistant_streaming:
             self.assistant_streaming = True
             self.tui.begin_streaming("Thinking...")
@@ -199,6 +201,7 @@ class CLI():
 
 
             if event.type == AgentEventType.TOOL_CALL_START:
+                plan_phase_done = True
                 tool_name = event.data.get("name","unknown")
                 self._track_tool_start(tool_name)
                 tool_kind = self.get_tool_kind(tool_name=tool_name)
@@ -224,24 +227,41 @@ class CLI():
                     event.data.get("truncated",False),
                     event.data.get("exit_code")
                 )
-
-            elif event.type == AgentEventType.TEXT_DELTA:
-
-                content = event.data.get("content","")
-                self.tui.stream_assistant_delta(content=content)
-
-
-            elif event.type == AgentEventType.TEXT_COMPLETE:
-                final_response = event.data.get("content","")
-                if self.assistant_streaming:
-                    self.tui.end_assistance()
-                    self.assistant_streaming = False
             elif event.type == AgentEventType.PLAN:
                 steps = event.data.get("steps", [])
                 if steps:
                     self._set_plan(steps)
                 else:
                     self._clear_plan()
+
+                plan_phase_done = True
+            elif event.type == AgentEventType.TEXT_DELTA:
+                content = event.data.get("content", "")
+
+                # 🔥 Only switch AFTER planning/tools phase
+                if plan_phase_done and not final_started:
+                    final_started = True
+
+                    if self.assistant_streaming:
+                        self.tui.end_assistance()
+                        self.assistant_streaming = False
+
+                    self.tui.start_final_answer()
+
+                # If final started → stream there
+                if final_started:
+                    self.tui.stream_final_answer(content)
+                else:
+                    # still thinking phase
+                    self.tui.stream_assistant_delta(content)
+
+
+            elif event.type == AgentEventType.TEXT_COMPLETE:
+                final_response = event.data.get("content", "")
+
+                if final_started:
+                    self.tui.end_final_answer()
+            
 
 
             elif event.type == AgentEventType.AGENT_ERROR:

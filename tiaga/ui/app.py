@@ -44,6 +44,7 @@ from .widgets import (
     PlanPanel,
     RainbowBorder,
     ToolCallBlock,
+    UserMessage,
 )
 
 try:
@@ -178,7 +179,10 @@ class ChatScreen(Screen):
 
     def on_resize(self, _event: Any) -> None:
         self._apply_responsive_layout(self.size.width)
-
+    async def add_user_message(self, text: str) -> None:
+        msg = UserMessage()
+        msg.set_text(text)
+        await self._mount_widget(msg)
     def _apply_responsive_layout(self, width: int) -> None:
         try:
             header_path = self.query_one("#header-path", Static)
@@ -214,7 +218,12 @@ class ChatScreen(Screen):
         yield FooterBar(id="footer")
 
     # ── internal mount helpers ─────────────────────────────────────────────────
-
+    def on_paste(self, event: events.Paste) -> None:
+        try:
+            input_box = self.query_one("#chat-input", Input)
+            input_box.insert_text(event.text)
+        except Exception:
+            pass
     def _scroll(self) -> ScrollableContainer:
         return self.query_one("#messages-scroll", ScrollableContainer)
 
@@ -358,15 +367,13 @@ class ApprovalScreen(Screen):
     CSS = TEXTUAL_CSS
 
     BINDINGS = [
-        Binding("up,k",        "move_up",     "Up",      show=False),
-        Binding("down,j",      "move_down",   "Down",    show=False),
-        Binding("enter,space", "confirm",     "Select",  show=False),
-        Binding("r",           "reject",      "Reject",  show=False),
-        Binding("a",           "allow",       "Allow",   show=False),
-        Binding("A",           "always_allow","Always",  show=False),
-        Binding("tab",         "focus_next",  "Focus",   show=False),
-        Binding("escape",      "reject",      "Cancel",  show=False),
-    ]
+    Binding("ctrl+c", "quit", "Quit", show=False),
+    Binding("ctrl+shift+v", "paste_clipboard", "Paste",show=True),
+    Binding("f1", "show_help", "Help"),
+    Binding("f2", "show_settings", "Settings"),
+    Binding("ctrl+b", "toggle_sidebar", "Sidebar"),
+    Binding("escape", "dismiss_focus", "Dismiss"),
+]
 
     def __init__(
         self,

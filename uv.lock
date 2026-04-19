@@ -1557,7 +1557,7 @@ wheels = [
 
 [[package]]
 name = "tiaga"
-version = "0.1.49"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

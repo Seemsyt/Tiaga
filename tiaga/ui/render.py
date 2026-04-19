@@ -207,25 +207,77 @@ class TUI:
     # ── streaming ────────────────────────────────────────────────────────────
 
     def begin_streaming(self, loading_text: str | None = "Thinking...") -> None:
+        """
+        Start a temporary thinking block.
+        This block is NOT the final answer.
+        """
         self._streaming = True
         self._first_token_seen = False
-        self._call(self._ensure_app().chat.start_assistant_block(loading_text))
+
+        async def _start():
+            await self._ensure_app().chat.start_assistant_block(loading_text)
+
+        self._call(_start())
+
 
     def stream_assistant_delta(self, content: str) -> None:
+        """
+        Stream tokens into the current assistant block.
+        """
         if not self._streaming:
             return
+
         self._first_token_seen = True
-        self._post(self._ensure_app().chat.stream_delta, content)
+
+        async def _stream():
+            self._ensure_app().chat.stream_delta(content)
+
+        self._call(_stream())
+
 
     def end_assistance(self) -> None:
+        """
+        Ends ONLY the thinking block.
+        """
         self._streaming = False
         self._first_token_seen = False
-        self._post(self._ensure_app().chat.end_assistant_block)
 
-    def set_streaming_text(self, text: str) -> None:
-        if not self._streaming:
-            return
-        self._post(self._ensure_app().chat.set_current_assistant_text, text)
+        async def _end():
+            self._ensure_app().chat.end_assistant_block()
+
+        self._call(_end())
+
+
+    # ✅ NEW: FINAL ANSWER (separate clean block)
+
+    def start_final_answer(self) -> None:
+        """
+        Start a clean assistant block for final answer.
+        """
+        async def _start():
+            await self._ensure_app().chat.start_assistant_block()
+
+        self._call(_start())
+
+
+    def stream_final_answer(self, content: str) -> None:
+        """
+        Stream final answer tokens.
+        """
+        async def _stream():
+            self._ensure_app().chat.stream_delta(content)
+
+        self._call(_stream())
+
+
+    def end_final_answer(self) -> None:
+        """
+        End final answer block.
+        """
+        async def _end():
+            self._ensure_app().chat.end_assistant_block()
+
+        self._call(_end())
 
     # ── plan panel ───────────────────────────────────────────────────────────
 
@@ -254,14 +306,14 @@ class TUI:
             if isinstance(val, str) and self.cwd:
                 display_args[key] = str(display_path_relative_to_cwd(val, self.cwd))
 
-        self._call(
-            self._ensure_app().chat.add_tool_start(
+        async def _add_tool():
+            await self._ensure_app().chat.add_tool_start(
                 call_id=call_id,
                 tool_kind=tool_kind,
                 name=name,
                 arguments=display_args,
             )
-        )
+        self._call(_add_tool())
 
     def render_tool_call_end(
         self,
@@ -288,13 +340,14 @@ class TUI:
             exit_code=exit_code,
             args=args,
         )
-        self._post(
-            self._ensure_app().chat.finish_tool,
-            call_id,
-            success,
-            renderables,
-            error,
-        )
+        async def _finish():
+            self._ensure_app().chat.finish_tool(
+                call_id,
+                success,
+                renderables,
+                error,
+            )
+        self._call(_finish())
 
     # ── confirmation / approval ──────────────────────────────────────────────
 
@@ -508,6 +561,10 @@ class TUI:
             blocks.append(Text("⚠ tool output was truncated", style="yellow"))
 
         return blocks
+    
+    def add_user_message(self, text: str):
+        coro = self._ensure_app().chat.add_user_message(text)
+        self._call(coro)
     
     def shutdown(self):
         if self._app:

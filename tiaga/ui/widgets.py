@@ -193,6 +193,13 @@ class ToolCallBlock(Static):
         self.update(Group(*parts))
 
 
+class UserMessage(Static):
+    def set_text(self, content: str):
+        text = Text()
+        text.append("You: ", style="bold #89b4fa")   # blue prefix
+        text.append(content, style="white")          # message text
+        self.update(text)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AssistantMessage
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,16 +373,12 @@ class FooterBar(Static):
     }
     """
 
-    _BINDINGS: list[tuple[str, str]] = [
-        ("^f", "Focus"),
-        ("⏎", "Send"),
-        ("esc", "Dismiss"),
-        ("alt+↑ alt+↓", "Cursor"),
-        ("^o", "Modes"),
-        ("^b", "Sidebar"),
-        ("f1", "Help"),
-        ("f2", "Settings"),
-        ("^p", "palette"),
+    _BINDINGS: list[tuple[str, str]] =  [
+        ("/q", "quit", ),
+        ("/help", "show_help"),
+        ("/config", "show_settings"),
+        ("ctrl+shift+v","paste"),
+        
     ]
 
     def on_mount(self) -> None:
