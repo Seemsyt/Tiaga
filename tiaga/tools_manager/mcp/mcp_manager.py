@@ -57,7 +57,7 @@ class MCPManager:
 
 
 
-    async def Shoutdown(self)->None:
+    async def shutdown(self)->None:
         disconnection_task = [client.disconnect() for client in self._clients.values()]
 
         asyncio.gather(*disconnection_task,return_exceptions=True)

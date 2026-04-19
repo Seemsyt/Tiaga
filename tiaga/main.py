@@ -11,9 +11,8 @@ from tiaga.utils.erors import ConfigError
 from tiaga.ui.render import TUI,_get_console
 import click
 import asyncio
-from tiaga.client.llm_client import LLM_client
 from tiaga.agent.agent import Agent,AgentEventType
-
+#main.py
 console = _get_console()
 
 LOGO = """\
@@ -32,17 +31,37 @@ class CLI():
         self.config = config
         self.agent:Agent|None = None
         self.tui = TUI(console=console,config=config)
+        self.persistence_manager = PersistenceManager()
         self.assistant_streaming = False
         self._pending_plan_steps: dict[int, dict[str, str]] = {}
         self._active_plan_step: dict[str, str] | None = None
 
     def _ui_note(self, text: str) -> None:
         self.tui.post_message(text)
-        
 
+    def _build_session_snapshot(self) -> SessionSnapshot | None:
+        if not self.agent or not self.agent.session or not self.agent.session.context_manager:
+            return None
+        return SessionSnapshot(
+            session_id=self.agent.session.session_id,
+            created_at=self.agent.session.created,
+            updated_at=self.agent.session.updated,
+            turn_count=self.agent.session.turn_count,
+            messages=self.agent.session.context_manager.get_messages(),
+            total_usage=self.agent.session.context_manager.total_usage,
+        )
 
-
-
+    def _persist_session(self, announce: bool = False) -> None:
+        snapshot = self._build_session_snapshot()
+        if snapshot is None:
+            return
+        try:
+            self.persistence_manager.save_session(snapshot)
+            if announce:
+                self._ui_note(f"Session saved: {snapshot.session_id}")
+        except Exception as exc:
+            if announce:
+                self._ui_note(f"Failed to save session: {exc}")
     def get_tool_kind(self, tool_name):
         if not self.agent:
             return None
@@ -76,13 +95,22 @@ class CLI():
     def _set_plan(self, plan_steps) -> None:
         self._clear_plan()
         for idx, step in enumerate(plan_steps, start=1):
-            step_number = int(getattr(step, "step", idx) or idx)
+            if isinstance(step, dict):
+                raw_step = step.get("step", idx)
+                task = step.get("task", "")
+                tool = step.get("tool", "")
+            else:
+                raw_step = getattr(step, "step", idx)
+                task = getattr(step, "task", "")
+                tool = getattr(step, "tool", "")
+
+            step_number = int(raw_step or idx)
             while step_number in self._pending_plan_steps:
                 step_number += 1
             self._pending_plan_steps[step_number] = (
                 {
-                    "label": f"{step.step}. {step.task} ({step.tool})",
-                    "tool": (step.tool or "").strip(),
+                    "label": f"{step_number}. {task} ({tool})",
+                    "tool": (tool or "").strip(),
                     "status": "pending",
                 }
             )
@@ -134,41 +162,13 @@ class CLI():
                     if not user_input:
                         continue
                     self._ui_note(f"You: {user_input}")
-                    tool_names = [tool.name for tool in self.agent.session.tool_registry.get_tools()]
-                    spinner_stop = asyncio.Event()
-                    spinner_task: asyncio.Task | None = None
-                    if not self.assistant_streaming:
-                        self.assistant_streaming = True
-                        self.tui.begin_streaming("◜")
-                        spinner_task = asyncio.create_task(self._planning_spinner(spinner_stop))
-                    try:
-                        plan = await asyncio.wait_for(
-                            self.agent.session.planner.create_plan(
-                                user_query=user_input,
-                                available_tools=tool_names,
-                            ),
-                            timeout=1.5,
-                        )
-                        if plan:
-                            self._set_plan(plan)
-                        else:
-                            self._clear_plan()
-                    except TimeoutError:
-                        self._clear_plan()
-                    except Exception:
-                        self._clear_plan()
-                    finally:
-                        spinner_stop.set()
-                        if spinner_task:
-                            await spinner_task
-                        if self.assistant_streaming:
-                            self.tui.end_assistance()
-                            self.assistant_streaming = False
                     await self._process_message(user_input)
+                    self._persist_session()
                 except KeyboardInterrupt:
                     self._ui_note("Use /exit to quit.")
                 except EOFError:
                     break           
+            self._persist_session()
             self._ui_note("Goodbye.")
         
 
@@ -179,7 +179,9 @@ class CLI():
             if message.startswith("/"):
                 should_continue = await self.handle_command(message)
                 return "" if should_continue else None
-            return await self._process_message(message)
+            response = await self._process_message(message)
+            self._persist_session()
+            return response
 
     
 
@@ -188,6 +190,7 @@ class CLI():
     async def _process_message(self,message):
         if not self.agent:
             return None
+        self.agent.session.increment_turn()
         final_response = None
         if not self.assistant_streaming:
             self.assistant_streaming = True
@@ -233,6 +236,12 @@ class CLI():
                 if self.assistant_streaming:
                     self.tui.end_assistance()
                     self.assistant_streaming = False
+            elif event.type == AgentEventType.PLAN:
+                steps = event.data.get("steps", [])
+                if steps:
+                    self._set_plan(steps)
+                else:
+                    self._clear_plan()
 
 
             elif event.type == AgentEventType.AGENT_ERROR:
@@ -262,6 +271,7 @@ class CLI():
 
 
         if cmd_name in ["/exit","/quit","/q"]:
+            self._persist_session()
             self._ui_note("Exiting Tiaga...")
             self.tui.shutdown()
             return False
@@ -269,7 +279,6 @@ class CLI():
             self.tui.show_help()
         elif cmd_name == "/clear":
             self.agent.session.context_manager.clear() 
-            self.agent.session.loop_detector.clear_history()
             self._ui_note("Conversation history was cleared.")
         elif cmd_name == "/config":
             self._ui_note(
@@ -310,22 +319,12 @@ class CLI():
             self._ui_note(f"Available tools ({len(tools)})\n" + "\n".join(tool_lines))
 
         elif cmd_name == "/mcp":
-            mcp_servers = self.agent.session.tool_registry.getmcp
+            mcp_servers = self.agent.session.tool_registry.mcp_tools
             self._ui_note(f"MCP Servers ({len(mcp_servers)})")
             for server in mcp_servers:
                 self._ui_note(f"• {server.name}")
         elif cmd_name == "/save":
-            persistence_manager = PersistenceManager()
-            session_snapshot =SessionSnapshot(
-                session_id=self.agent.session.session_id,
-                created_at=self.agent.session.created,
-                updated_at=self.agent.session.updated,
-                turn_count=self.agent.session.turn_count,
-                messages=self.agent.session.context_manager.get_messages(),
-                total_usage=self.agent.session.context_manager.total_usage,
-            )
-            persistence_manager.save_session(session_snapshot)
-            self._ui_note(f"Session saved: {self.agent.session.session_id}")
+            self._persist_session(announce=True)
         elif cmd_name =="/sessions":
             persistence_manager = PersistenceManager()
             sessions = persistence_manager.list_sessions()
@@ -372,24 +371,19 @@ class CLI():
                             session.context_manager.add_assistant_message(msg.get("content",""),msg.get("tool_calls"))
                         elif msg["role"] == "tool":
                             session.context_manager.add_tool_message(msg.get("tool_call_id",""),msg.get("content",""))
-                    await self.agent.session.mcp_manager.Shoutdown()
+                    await self.agent.session.mcp_manager.shutdown()
                     await self.agent.session.client.close_client()
-                    
+
                     self.agent.session = session
                     self._ui_note(f"Session resumed {session.session_id}")
 
         elif cmd_name == "/checkpoint":
-            persistence_manager = PersistenceManager()
-            session_snapshot =SessionSnapshot(
-                session_id=self.agent.session.session_id,
-                created_at=self.agent.session.created,
-                updated_at=self.agent.session.updated,
-                turn_count=self.agent.session.turn_count,
-                messages=self.agent.session.context_manager.get_messages(),
-                total_usage=self.agent.session.context_manager.total_usage,
-            )
-            checkpoint_id = persistence_manager.save_checkpoint(session_snapshot)
-            self._ui_note(f"checkpoint saved {checkpoint_id}")
+            session_snapshot = self._build_session_snapshot()
+            if session_snapshot is None:
+                self._ui_note("No active session to checkpoint.")
+            else:
+                checkpoint_id = self.persistence_manager.save_checkpoint(session_snapshot)
+                self._ui_note(f"checkpoint saved {checkpoint_id}")
         elif cmd_name == "/restore":
             if not cmd_args:
                 self._ui_note("Usage: /restore <session_id>")
@@ -416,9 +410,9 @@ class CLI():
                             session.context_manager.add_assistant_message(msg.get("content",""),msg.get("tool_calls"))
                         elif msg["role"] == "tool":
                             session.context_manager.add_tool_message(msg.get("tool_call_id",""),msg.get("content",""))
-                    await self.agent.session.mcp_manager.Shoutdown()
+                    await self.agent.session.mcp_manager.shutdown()
                     await self.agent.session.client.close_client()
-                    
+
                     self.agent.session = session
                     self._ui_note(f"Session resumed {session.session_id} and checkpoint {cmd_args}")
 

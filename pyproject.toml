@@ -1,6 +1,6 @@
 [project]
 name = "tiaga"
-version = "0.1.49"
+version = "0.2.00"
 authors = [{name = "Seems kushwaha"}]
 description = "A CLI tool"
 readme = "README.md"

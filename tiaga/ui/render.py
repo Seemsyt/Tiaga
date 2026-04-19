@@ -163,11 +163,14 @@ class TUI:
         # Ensure Textual app is visible as the primary interface.
         self._ensure_app()
 
-        # Render a short startup message as assistant text.
+        # Render a short startup message as assistant text in a blocking manner
+        # to guarantee ordering with subsequent _ui_note calls.
         startup = f"{title}\n" + "\n".join(lines)
-        self._call(self._ensure_app().chat.start_assistant_block())
-        self._post(self._ensure_app().chat.stream_delta, startup)
-        self._post(self._ensure_app().chat.end_assistant_block)
+        async def _welcome():
+            await self._ensure_app().chat.start_assistant_block()
+            await self._ensure_app().chat.stream_delta(startup)
+            await self._ensure_app().chat.end_assistant_block()
+        self._call(_welcome())
 
     def show_help(self) -> None:
         help_text = (

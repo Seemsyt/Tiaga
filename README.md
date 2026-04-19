@@ -218,7 +218,9 @@ tiaga/
 │   ├── events.py         # AgentEvent types and definitions
 │   ├── session.py        # Session management, tool registry
 │   └── persistence.py    # Session checkpoint/save/load
-│
+│   └── planner.py
+|
+|
 ├── client/               # LLM client layer
 │   ├── llm_client.py     # OpenAI-compatible client
 │   └── response.py       # Response parsing, token usage
@@ -266,6 +268,9 @@ tiaga/
 │   │   └── types.py
 │   └── __init__.py
 │
+|
+├──tracing/
+|       ├──trace.py
 ├── ui/                   # User interface
 │   ├── render.py         # TUI rendering, panels, streaming
 │   └── __init__.py
