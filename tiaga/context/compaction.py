@@ -81,7 +81,7 @@ class ChatCompaction:
                     if event.text_delta and event.text_delta.content:
                         summary += event.text_delta.content
 
-            if not summary or not usage:
+            if not summary :
                 return None, None
 
             return summary, usage

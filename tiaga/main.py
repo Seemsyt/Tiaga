@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 from tiaga.agent.persistence import PersistenceManager, SessionSnapshot
 from tiaga.agent.session import Session
@@ -9,6 +10,7 @@ from tiaga.config.loader import load_config, update_config
 
 from tiaga.utils.erors import ConfigError
 from tiaga.ui.render import TUI,_get_console
+from tiaga.tracing.trace import Trace
 import click
 import asyncio
 from tiaga.agent.agent import Agent,AgentEventType
@@ -35,6 +37,8 @@ class CLI():
         self.assistant_streaming = False
         self._pending_plan_steps: dict[int, dict[str, str]] = {}
         self._active_plan_step: dict[str, str] | None = None
+        self._response_start_time: float | None = None
+        self._response_latency: float | None = None
 
     def _ui_note(self, text: str) -> None:
         self.tui.post_message(text)
@@ -60,6 +64,7 @@ class CLI():
             if announce:
                 self._ui_note(f"Session saved: {snapshot.session_id}")
         except Exception as exc:
+            console.log(f"[warning]Failed to save session {snapshot.session_id}:[/warning] {exc}")
             if announce:
                 self._ui_note(f"Failed to save session: {exc}")
     def get_tool_kind(self, tool_name):
@@ -138,7 +143,7 @@ class CLI():
         frames = ["◜", "◠", "◝", "◞", "◡", "◟"]
         idx = 0
         while not stop_event.is_set():
-            self.tui.set_streaming_text(frames[idx % len(frames)])
+            self.tui.set_current_assistant_text(frames[idx % len(frames)])
             idx += 1
             await asyncio.sleep(0.12)
 
@@ -159,10 +164,22 @@ class CLI():
                         if not should_continue:
                             break
                         continue
+                    if not self.check_api():
+                        self._ui_note("Before Using first set base_url(/base_url) , api_key(/api_key) and model name(/model name)")
+                        continue
+                        
                     if not user_input:
                         continue
                     self.tui.add_user_message(user_input)
-                    await self._process_message(user_input)
+                    Trace.trace_before_agent(user_message=user_input)
+                    final_response = await self._process_message(user_input)
+                    Trace.trace_after_agent(
+                        user_message=user_input,
+                        final_response=final_response or "",
+                        latency=self._response_latency,
+                        turn_count=self.agent.session.turn_count if self.agent and self.agent.session else None,
+                        token_usage=self.agent.session.context_manager.total_usage if self.agent and self.agent.session and self.agent.session.context_manager else None
+                    )
                     self._persist_session()
                 except KeyboardInterrupt:
                     self._ui_note("Use /exit to quit.")
@@ -179,17 +196,38 @@ class CLI():
             if message.startswith("/"):
                 should_continue = await self.handle_command(message)
                 return "" if should_continue else None
+            if not self.check_api():
+                self.tui.stream_final_answer("Before Using first set base_url(/base_url) , api_key(/api_key) and model name(/model name)")
+                return
+            Trace.trace_before_agent(user_message=message)
             response = await self._process_message(message)
+            Trace.trace_after_agent(
+                user_message=message,
+                final_response=response or "",
+                latency=self._response_latency,
+                turn_count=self.agent.session.turn_count if self.agent and self.agent.session else None,
+                token_usage=self.agent.session.context_manager.total_usage if self.agent and self.agent.session and self.agent.session.context_manager else None
+            )
             self._persist_session()
             return response
 
     
 
-    
-            
+    def check_api(self):
+        if self.config.api_key_value == "set_api_key":
+            return False
+        if self.config.base_url_value == "set_base_url":
+            return False
+        if self.config.model.name == "":
+            return False
+        return True
+  
+        
+
     async def _process_message(self,message):
         if not self.agent:
             return None
+        self._response_start_time = time.time()
         self.agent.session.increment_turn()
         final_response = None
         plan_phase_done = False
@@ -261,6 +299,9 @@ class CLI():
 
                 if final_started:
                     self.tui.end_final_answer()
+                elif self.assistant_streaming:
+                    self.tui.end_assistance()
+                    self.assistant_streaming = False
             
 
 
@@ -279,14 +320,32 @@ class CLI():
                 if self.assistant_streaming:
                     self.tui.end_assistance()
                     self.assistant_streaming = False
-  
-
+        
+        # Calculate and display latency
+        if self._response_start_time:
+            self._response_latency = time.time() - self._response_start_time
+            latency_text = f"\n\n---\n⏱️  Response latency: {self._response_latency:.2f}s"
+            self.tui.stream_final_answer(latency_text)
+            
+            # Collect token usage if available
+            token_usage = None
+            if self.agent and self.agent.session and self.agent.session.context_manager:
+                token_usage = self.agent.session.context_manager.total_usage
+            
+            # Trace the response latency
+            turn_count = self.agent.session.turn_count if self.agent and self.agent.session else None
+            Trace.trace_response_latency(
+                latency=self._response_latency,
+                turn_count=turn_count,
+                token_usage=token_usage,
+                success=True
+            )
 
         return final_response
     async def handle_command(self,command:str)->bool:
-        cmd = command.lower().strip()
-        parts = cmd.split(maxsplit=1)
-        cmd_name = parts[0]
+        command = command.strip()
+        parts = command.split(maxsplit=1)
+        cmd_name = parts[0].lower()
         cmd_args = parts[1] if len(parts) > 1 else ""
 
 
@@ -312,14 +371,32 @@ class CLI():
             )
         elif cmd_name == "/model":
             if cmd_args:
-                self.config.model_name = cmd_args
+                self.config.model.name = cmd_args
+                update_config({"model": {"name": cmd_args}})
                 self._ui_note(f"Model changed to: {cmd_args}")
             self._ui_note(f"Current model: {self.config.model_name}")
+        
+        elif cmd_name == "/api_key":
+            if cmd_args:
+                self.config.api_key_value = cmd_args
+                update_config({"api_key": cmd_args})
+                self._ui_note(f"API key updated successfully")
+            else:
+                self._ui_note(f"Current API key: {'*' * len(self.config.api_key_value) if self.config.api_key_value != 'set_api_key' else 'not set'}")
+        
+        elif cmd_name == "/base_url":
+            if cmd_args:
+                self.config.base_url_value = cmd_args
+                update_config({"base_url": cmd_args})
+                self._ui_note(f"Base URL updated to: {cmd_args}")
+            else:
+                self._ui_note(f"Current base URL: {self.config.base_url_value}")
 
         elif cmd_name == "/approval":
             if cmd_args:
                 try:
                     approval = ApprovalPolicy(cmd_args)
+                    update_config({"approval": approval.value})
                     self.config.approval = approval
                     self._ui_note(f"Approval policy changed to: {cmd_args}")
                 except:

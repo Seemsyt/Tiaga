@@ -40,10 +40,7 @@ class ToolExecutor:
                 await hook_system.trigger_after_tool(name, params, result)
             return result
 
-        if trace_system:
-            trace_system.trace_before_tool(name, params)
-        if hook_system:
-            await hook_system.trigger_before_tool(name, params)
+        
 
         invocation = ToolInvocation(params, cwd)
 
@@ -71,7 +68,10 @@ class ToolExecutor:
                         if hook_system:
                             await hook_system.trigger_after_tool(name, params, result)
                         return result
-
+        if trace_system:
+            trace_system.trace_before_tool(name, params)
+        if hook_system:
+            await hook_system.trigger_before_tool(name, params)
         try:
             result = await tool.execute(invocation)
             if trace_system:

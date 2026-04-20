@@ -167,9 +167,10 @@ class TUI:
         # to guarantee ordering with subsequent _ui_note calls.
         startup = f"{title}\n" + "\n".join(lines)
         async def _welcome():
-            await self._ensure_app().chat.start_assistant_block()
-            await self._ensure_app().chat.stream_delta(startup)
-            await self._ensure_app().chat.end_assistant_block()
+            chat = self._ensure_app().chat
+            await chat.start_assistant_block()
+            chat.stream_delta(startup)
+            chat.end_assistant_block()
         self._call(_welcome())
 
     def show_help(self) -> None:
@@ -572,6 +573,8 @@ class TUI:
                 self._app.call_from_thread(self._app.exit)
             except Exception:
                 pass
+    def set_current_assistant_text(self, text: str) -> None:
+        self._post(self._ensure_app().chat.set_current_assistant_text, text)
 
         if self._app_thread and self._app_thread.is_alive():
             self._app_thread.join(timeout=2)

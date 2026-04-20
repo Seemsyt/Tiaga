@@ -152,11 +152,16 @@ class ChatScreen(Screen):
     CSS = TEXTUAL_CSS
 
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Quit", show=False),
-        Binding("f1", "show_help", "Help"),
-        Binding("f2", "show_settings", "Settings"),
-        Binding("ctrl+b", "toggle_sidebar", "Sidebar"),
-        Binding("escape", "dismiss_focus", "Dismiss"),
+        Binding("up",    "move_up",       "Up",   show=False),
+        Binding("k",     "move_up",       "Up",   show=False),
+        Binding("down",  "move_down",     "Down", show=False),
+        Binding("j",     "move_down",     "Down", show=False),
+        Binding("enter", "confirm",       "Confirm"),
+        Binding("space", "confirm",       "Confirm", show=False),
+        Binding("a",     "allow",         "Allow"),
+        Binding("A",     "always_allow",  "Always Allow"),
+        Binding("r",     "reject",        "Reject"),
+        Binding("escape","reject",        "Cancel", show=False),
     ]
 
     def __init__(self, title: str, cwd: str, mode: str = "Default", **kwargs: Any) -> None:
@@ -222,8 +227,8 @@ class ChatScreen(Screen):
         try:
             input_box = self.query_one("#chat-input", Input)
             input_box.insert_text(event.text)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            self.log.debug(f"on_paste: {exc}")
     def _scroll(self) -> ScrollableContainer:
         return self.query_one("#messages-scroll", ScrollableContainer)
 

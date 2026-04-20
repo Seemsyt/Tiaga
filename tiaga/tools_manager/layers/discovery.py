@@ -5,11 +5,12 @@ import inspect
 import sys
 from pathlib import Path
 from typing import Any
-
+import logging
 from tiaga.config.config import Config
 from tiaga.tools_manager.base import Tool
 from tiaga.tools_manager.layers.catalog import ToolCatalog
 
+logger = logging.getLogger(__name__)
 
 class ToolDiscoveryManager:
     """Discovery layer for loading user-provided tools."""
@@ -52,8 +53,8 @@ class ToolDiscoveryManager:
                 module = self._load_module(py_file)
                 for tool_class in self._find_tool_classes(module):
                     self.catalog.register(tool_class(self.config))
-            except Exception:
-                continue
+            except Exception as e:
+                logger.exception("Failed to discover tool from %s",py_file)
 
     def discover_all(self) -> None:
         self.discover_from_directory(self.config.cwd)

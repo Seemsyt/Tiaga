@@ -35,6 +35,8 @@ class ToolCatalog:
         return False
 
     def get(self, name: str) -> Tool | None:
+        if self.config.allowed_tools and name not in set(self.config.allowed_tools):
+            return None
         if name in self._tools:
             return self._tools.get(name)
         return self._mcp_tools.get(name)

@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel,Field, model_validator
 
 class ModelConfig(BaseModel):
-    name:str = "stepfun/step-3.5-flash:free"
+    name:str = ""
     temperature:float = Field(default=1,le=2.00,gt=0.00)
     context_window:int|None = 160_000
 
@@ -90,8 +90,8 @@ class VoiceConfig(BaseModel):
 class Config(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     model:ModelConfig = Field(default_factory=ModelConfig)
-    api_key_value:str|None = Field(default=None,alias="api_key")
-    base_url_value:str|None = Field(default=None,alias="base_url")
+    api_key_value:str|None = Field(default="set_api_key",alias="api_key")
+    base_url_value:str|None = Field(default="set_base_url",alias="base_url")
     cwd:Path = Field(default_factory=Path.cwd)
     shell_environment:ShellEnvironmentPolicy = Field(default_factory=ShellEnvironmentPolicy)
     hooks_enabled:bool = False
@@ -112,27 +112,27 @@ class Config(BaseModel):
 
     @property
     def api_key(self)-> str|None:
-        return os.environ.get("API_KEY") or self.api_key_value
+        return os.environ.get("TIAGA_API_KEY") or self.api_key_value
 
     @api_key.setter
     def api_key(self,value:str|None)->None:
         self.api_key_value = value
         if value is None:
-            os.environ.pop("API_KEY",None)
+            os.environ.pop("TIAGA_API_KEY",None)
         else:
-            os.environ["API_KEY"] = value
+            os.environ["TIAGA_API_KEY"] = value
 
     @property
     def base_url(self)->str|None:
-        return os.environ.get("BASE_URL") or self.base_url_value
+        return os.environ.get("TIAGA_BASE_URL") or self.base_url_value
 
     @base_url.setter
     def base_url(self,value:str|None)->None:
         self.base_url_value = value
         if value is None:
-            os.environ.pop("BASE_URL",None)
+            os.environ.pop("TIAGA_BASE_URL",None)
         else:
-            os.environ["BASE_URL"] = value
+            os.environ["TIAGA_BASE_URL"] = value
 
     @property
     def model_name(self)->str|None:
@@ -164,7 +164,9 @@ class Config(BaseModel):
         errors:list[str] = []
          
         if not self.api_key:
-            errors.append('NO API key was found, set API_KEY in environment variable')
+            errors.append('NO API key was found, set TIAGA_API_KEY in environment variable')
+        if not self.base_url:
+            errors.append("NO BASE URL was found, Set TIAGA_BASE_URL in environment variable")
         if not self.cwd.exists():
             errors.append(f"Working directory does not exists at {self.cwd}")
         return errors

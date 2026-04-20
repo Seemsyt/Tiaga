@@ -13,6 +13,7 @@ class TraceType(str, Enum):
     TRACE_BEFORE_TOOL = "trace_before_tool"
     TRACE_AFTER_TOOL = "trace_after_tool"
     TRACE_ON_ERROR = "trace_on_error"
+    TRACE_RESPONSE_LATENCY = "trace_response_latency"
 
 
 class Trace:
@@ -58,31 +59,38 @@ class Trace:
         Trace.write_trace(log)
 
     @staticmethod
-    def trace_after_agent(user_message: str,final_response:str):
+    def trace_after_agent(user_message: str, final_response: str, latency: float = None, turn_count: int = None, token_usage: dict = None):
         log = Trace.build_trace(
             trigger=TraceType.TRACE_AFTER_AGENT,
             message=user_message,
-            final_response = final_response
+            final_response=final_response,
+            latency_seconds=latency,
+            turn_count=turn_count,
+            token_usage=token_usage,
         )
         Trace.write_trace(log)
 
     @staticmethod
-    def trace_before_tool(tool_name: str, params: str):
+    def trace_before_tool(tool_name: str, params: str, call_id: str = None):
         log = Trace.build_trace(
             trigger=TraceType.TRACE_BEFORE_TOOL,
-            
             tool_name=tool_name,
-            params = params,
+            params=params,
+            call_id=call_id,
         )
         Trace.write_trace(log)
 
     @staticmethod
-    def trace_after_tool(tool_name: str, params: str,result:str):
+    def trace_after_tool(tool_name: str, params: str, result: str, success: bool = True, error: str = None, execution_time: float = None, call_id: str = None):
         log = Trace.build_trace(
             trigger=TraceType.TRACE_AFTER_TOOL,
             tool_name=tool_name,
-            params = params,
-            result  = result,
+            params=params,
+            result=result,
+            success=success,
+            error=error,
+            execution_time_seconds=execution_time,
+            call_id=call_id,
         )
         Trace.write_trace(log)
 
@@ -93,6 +101,18 @@ class Trace:
             message=user_message,
             tool_name=tool_name,
             error=error
+        )
+        Trace.write_trace(log)
+
+    @staticmethod
+    def trace_response_latency(latency: float, turn_count: int = None, token_usage: dict = None, success: bool = True):
+        """Track response latency metrics with optional turn and token data."""
+        log = Trace.build_trace(
+            trigger=TraceType.TRACE_RESPONSE_LATENCY,
+            latency_seconds=latency,
+            turn_count=turn_count,
+            token_usage=token_usage,
+            success=success,
         )
         Trace.write_trace(log)
 
