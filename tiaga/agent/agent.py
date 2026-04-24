@@ -15,9 +15,10 @@ class Agent:
         self,
         config: Config,
         confirmation_callback: Callable[[ToolConfirmation], bool] | None = None,
+        parent_client = None,
     ):
         self.config = config
-        self.session: Session | None = Session(self.config)
+        self.session: Session | None = Session(self.config, parent_client=parent_client)
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.orchestrator: Orchestrator | None = None
 
@@ -49,6 +50,7 @@ class Agent:
             hook_system=self.session.hook_system,
             trace_system=self.session.trace_system,
             chat_compactor=self.session.chat_compactor,
+            project_graph_context=self.session.project_graph_context,
         )
         self.orchestrator = Orchestrator(runtime=runtime, planner=self.session.planner)
         return self

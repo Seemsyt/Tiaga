@@ -14,6 +14,7 @@ from tiaga.config.config import Config
 class ToolInvocation:
     params:dict[str,Any]
     cwd : Path
+    parent_client: Any = None
 
 @dataclass
 class FileDiff:

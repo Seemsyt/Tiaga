@@ -156,6 +156,19 @@ class ShellTool(Tool):
                                                        start_new_session=True)
         try:
             stdout_data,stderr_data = await asyncio.wait_for(process.communicate(),timeout=params.timeout)
+            stdout = stdout_data.decode("utf-8",errors="replace")
+            stderr = stderr_data.decode("utf-8",errors="replace")
+            exit_code  = process.returncode
+            output = ""
+            if stdout.strip():
+                output += stdout.rstrip()
+
+            if stderr.strip():
+                output += "\n-----stderror-----\n"
+                output += stderr.rstrip()
+
+            if exit_code != 0:
+                output +=f"\nexit code  {exit_code}"
         except asyncio.TimeoutError as e :
             if sys.platform != "win32":
                 try:
@@ -173,20 +186,7 @@ class ShellTool(Tool):
             else:
                 process.kill()
                 await process.wait()
-                raise      
-        stdout = stdout_data.decode("utf-8",errors="replace")
-        stderr = stderr_data.decode("utf-8",errors="replace")
-        exit_code  = process.returncode
-        output = ""
-        if stdout.strip():
-            output += stdout.rstrip()
-
-        if stderr.strip():
-            output += "\n-----stderror-----\n"
-            output += stderr.rstrip()
-
-        if exit_code != 0:
-            output +=f"\nexit code  {exit_code}"
+                raise
 
         display_output = None
         is_truncated = False

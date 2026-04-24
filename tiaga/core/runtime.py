@@ -25,3 +25,4 @@ class RuntimeState:
     hook_system: HookSystem
     trace_system: Trace
     chat_compactor: ChatCompaction
+    project_graph_context: str | None = None

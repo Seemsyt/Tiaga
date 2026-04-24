@@ -1,47 +1,71 @@
+from __future__ import annotations
+
 import os
+import shlex
 from pathlib import Path
-import sys
-import time
 from typing import Any
+
+import click
+import asyncio
+
 from tiaga.agent.persistence import PersistenceManager, SessionSnapshot
 from tiaga.agent.session import Session
 from tiaga.config.config import ApprovalPolicy, Config
 from tiaga.config.loader import load_config, update_config
-
-from tiaga.utils.erors import ConfigError
-from tiaga.ui.render import TUI,_get_console
+from tiaga.utils.errors import ConfigError
 from tiaga.tracing.trace import Trace
-import click
-import asyncio
-from tiaga.agent.agent import Agent,AgentEventType
-#main.py
-console = _get_console()
-
-LOGO = """\
-████████╗██╗ █████╗  ██████╗  █████╗ 
-╚══██╔══╝██║██╔══██╗██╔════╝ ██╔══██╗
-   ██║   ██║███████║██║  ███╗███████║
-   ██║   ██║██╔══██║██║   ██║██╔══██║
-   ██║   ██║██║  ██║╚██████╔╝██║  ██║
-   ╚═╝   ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝
-"""
+from tiaga.agent.agent import Agent, AgentEventType
+from tiaga.analysis.graph_builder import DependencyGraphBuilder
+from tiaga.ui.minimal import ModernUI
 
 
+# ── Session restore helper ─────────────────────────────────────────────────────
 
-class CLI():
-    def __init__(self, config:Config):
+async def _restore_session_from_snapshot(agent: Agent, config: Config, snapshot: SessionSnapshot) -> Session:
+    """Build a live Session from a persisted snapshot and swap it into the agent."""
+    session = Session(config=config)
+    await session.initialize()
+
+    session.created    = snapshot.created_at
+    session.session_id = snapshot.session_id
+    session.updated    = snapshot.updated_at
+    session.turn_count = snapshot.turn_count
+    session.context_manager.total_usage = snapshot.total_usage
+
+    for msg in snapshot.messages:
+        role = msg.get("role")
+        if role == "system":
+            continue
+        elif role == "user":
+            session.context_manager.add_user_message(msg.get("content", ""))
+        elif role == "assistant":
+            session.context_manager.add_assistant_message(
+                msg.get("content", ""), msg.get("tool_calls")
+            )
+        elif role == "tool":
+            session.context_manager.add_tool_message(
+                msg.get("tool_call_id", ""), msg.get("content", "")
+            )
+
+    await agent.session.mcp_manager.shutdown()
+    await agent.session.client.close_client()
+    agent.session = session
+    return session
+
+
+# ── CLI ────────────────────────────────────────────────────────────────────────
+
+class CLI:
+    def __init__(self, config: Config):
         self.config = config
-        self.agent:Agent|None = None
-        self.tui = TUI(console=console,config=config)
+        self.agent: Agent | None = None
+        self.ui = ModernUI(config)
         self.persistence_manager = PersistenceManager()
-        self.assistant_streaming = False
-        self._pending_plan_steps: dict[int, dict[str, str]] = {}
-        self._active_plan_step: dict[str, str] | None = None
-        self._response_start_time: float | None = None
-        self._response_latency: float | None = None
+
+    # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _ui_note(self, text: str) -> None:
-        self.tui.post_message(text)
+        self.ui.post_message(text)
 
     def _build_session_snapshot(self) -> SessionSnapshot | None:
         if not self.agent or not self.agent.session or not self.agent.session.context_manager:
@@ -53,6 +77,7 @@ class CLI():
             turn_count=self.agent.session.turn_count,
             messages=self.agent.session.context_manager.get_messages(),
             total_usage=self.agent.session.context_manager.total_usage,
+            title=getattr(self.agent.session, "title", ""),  # ← carry title through
         )
 
     def _persist_session(self, announce: bool = False) -> None:
@@ -62,491 +87,508 @@ class CLI():
         try:
             self.persistence_manager.save_session(snapshot)
             if announce:
-                self._ui_note(f"Session saved: {snapshot.session_id}")
+                self._ui_note(f"session saved: {snapshot.session_id}")
         except Exception as exc:
-            console.log(f"[warning]Failed to save session {snapshot.session_id}:[/warning] {exc}")
+            click.echo(f"warning: failed to save session: {exc}", err=True)
             if announce:
-                self._ui_note(f"Failed to save session: {exc}")
-    def get_tool_kind(self, tool_name):
-        if not self.agent:
-            return None
-        tool = self.agent.session.tool_registry.get(tool_name)
-        if tool:
-            return tool.tool_kind.value
-        return None
+                self._ui_note(f"failed to save session: {exc}")
 
-    def _format_plan_items(self, plan_steps) -> list[tuple[str, str]]:
-        items: list[tuple[str, str]] = []
-        for idx, step in enumerate(plan_steps):
-            status = "active" if idx == 0 else "pending"
-            items.append((f"{step.step}. {step.task} ({step.tool})", status))
-        return items
+    def check_api(self) -> bool:
+        return not (
+            self.config.api_key_value == "set_api_key"
+            or self.config.base_url_value == "set_base_url"
+            or self.config.model.name == ""
+        )
 
-    def _clear_plan(self) -> None:
-        self._pending_plan_steps = {}
-        self._active_plan_step = None
-
-    def _dispatch_next_plan_step(self) -> None:
-        if self._active_plan_step is not None:
-            return
-        if not self._pending_plan_steps:
-            return
-        next_key = sorted(self._pending_plan_steps.keys())[0]
-        next_step = self._pending_plan_steps.pop(next_key)
-        next_step["status"] = "active"
-        self._active_plan_step = next_step
-        self.tui.post_plan([(next_step["label"], next_step["status"])])
-
-    def _set_plan(self, plan_steps) -> None:
-        self._clear_plan()
-        for idx, step in enumerate(plan_steps, start=1):
-            if isinstance(step, dict):
-                raw_step = step.get("step", idx)
-                task = step.get("task", "")
-                tool = step.get("tool", "")
-            else:
-                raw_step = getattr(step, "step", idx)
-                task = getattr(step, "task", "")
-                tool = getattr(step, "tool", "")
-
-            step_number = int(raw_step or idx)
-            while step_number in self._pending_plan_steps:
-                step_number += 1
-            self._pending_plan_steps[step_number] = (
-                {
-                    "label": f"{step_number}. {task} ({tool})",
-                    "tool": (tool or "").strip(),
-                    "status": "pending",
-                }
-            )
-        self._dispatch_next_plan_step()
-
-    def _track_tool_start(self, tool_name: str) -> None:
-        if self._active_plan_step is None:
-            self._dispatch_next_plan_step()
-        if self._active_plan_step is None:
-            return
-        if self._active_plan_step["tool"] == tool_name:
-            return
-
-    def _track_tool_end(self, tool_name: str, success: bool) -> None:
-        if self._active_plan_step is None or not success:
-            return
-        if self._active_plan_step["tool"] != tool_name:
-            return
-        self._active_plan_step["status"] = "done"
-        self.tui.post_plan([(self._active_plan_step["label"], self._active_plan_step["status"])])
-        self._active_plan_step = None
-        self._dispatch_next_plan_step()
-
-    async def _planning_spinner(self, stop_event: asyncio.Event) -> None:
-        frames = ["◜", "◠", "◝", "◞", "◡", "◟"]
-        idx = 0
-        while not stop_event.is_set():
-            self.tui.set_current_assistant_text(frames[idx % len(frames)])
-            idx += 1
-            await asyncio.sleep(0.12)
+    # ── Run loops ──────────────────────────────────────────────────────────────
 
     async def run_interactive(self):
+        self.ui.print_welcome()
 
-        self.tui.print_welcome(LOGO,lines=[
-            f"model:{self.config.model_name} ",
-            f"cwd:{self.config.cwd} ",
-            f"command: /help /exit /config /approval /model"
-        ])
-        async with Agent(self.config,self.tui.handle_confirmation) as agent:
+        async with Agent(self.config, self.ui.handle_confirmation) as agent:
             self.agent = agent
+
             while True:
                 try:
-                    user_input = self.tui.prompt_user().strip()
-                    if user_input.startswith('/'):
-                        should_continue = await  self.handle_command(user_input)
-                        if not should_continue:
-                            break
-                        continue
-                    if not self.check_api():
-                        self._ui_note("Before Using first set base_url(/base_url) , api_key(/api_key) and model name(/model name)")
-                        continue
-                        
+                    user_input = self.ui.prompt_user().strip()
                     if not user_input:
                         continue
-                    self.tui.add_user_message(user_input)
+
+                    if user_input.startswith("/"):
+                        if not await self.handle_command(user_input):
+                            break
+                        continue
+
+                    if not self.check_api():
+                        self._ui_note("set /base_url, /api_key, and /model before chatting")
+                        continue
+
                     Trace.trace_before_agent(user_message=user_input)
-                    final_response = await self._process_message(user_input)
+                    response = await self._process_message(user_input)
                     Trace.trace_after_agent(
                         user_message=user_input,
-                        final_response=final_response or "",
-                        latency=self._response_latency,
+                        final_response=response or "",
+                        latency=None,
                         turn_count=self.agent.session.turn_count if self.agent and self.agent.session else None,
-                        token_usage=self.agent.session.context_manager.total_usage if self.agent and self.agent.session and self.agent.session.context_manager else None
+                        token_usage=(
+                            self.agent.session.context_manager.total_usage
+                            if self.agent and self.agent.session and self.agent.session.context_manager
+                            else None
+                        ),
                     )
                     self._persist_session()
+
                 except KeyboardInterrupt:
-                    self._ui_note("Use /exit to quit.")
-                except EOFError:
-                    break           
-            self._persist_session()
-            self._ui_note("Goodbye.")
-        
+                    self._ui_note("use /exit to quit")
 
+        self._persist_session()
+        self._ui_note("bye")
 
-    async def run_single(self,message):
-        async with Agent(self.config) as agent:
+    async def run_single(self, message: str):
+        async with Agent(self.config, self.ui.handle_confirmation) as agent:
             self.agent = agent
+            message = (message or "").strip()
+            if not message:
+                return ""
+
             if message.startswith("/"):
                 should_continue = await self.handle_command(message)
                 return "" if should_continue else None
+
             if not self.check_api():
-                self.tui.stream_final_answer("Before Using first set base_url(/base_url) , api_key(/api_key) and model name(/model name)")
-                return
+                click.echo("set /base_url, /api_key, and /model before chatting", err=True)
+                return None
+
             Trace.trace_before_agent(user_message=message)
             response = await self._process_message(message)
             Trace.trace_after_agent(
                 user_message=message,
                 final_response=response or "",
-                latency=self._response_latency,
+                latency=None,
                 turn_count=self.agent.session.turn_count if self.agent and self.agent.session else None,
-                token_usage=self.agent.session.context_manager.total_usage if self.agent and self.agent.session and self.agent.session.context_manager else None
+                token_usage=(
+                    self.agent.session.context_manager.total_usage
+                    if self.agent and self.agent.session and self.agent.session.context_manager
+                    else None
+                ),
             )
             self._persist_session()
             return response
 
-    
-
-    def check_api(self):
-        if self.config.api_key_value == "set_api_key":
-            return False
-        if self.config.base_url_value == "set_base_url":
-            return False
-        if self.config.model.name == "":
-            return False
-        return True
-  
-        
-
-    async def _process_message(self,message):
-        if not self.agent:
+    async def _process_message(self, message: str):
+        if not self.agent or not self.agent.session:
             return None
-        self._response_start_time = time.time()
+
         self.agent.session.increment_turn()
-        final_response = None
-        plan_phase_done = False
-        final_started = False
-        if not self.assistant_streaming:
-            self.assistant_streaming = True
-            self.tui.begin_streaming("Thinking...")
-        async for event in self.agent.run(message):
+        final_response: str | None = None
 
+        try:
+            async for event in self.agent.run(message):
 
-            if event.type == AgentEventType.TOOL_CALL_START:
-                plan_phase_done = True
-                tool_name = event.data.get("name","unknown")
-                self._track_tool_start(tool_name)
-                tool_kind = self.get_tool_kind(tool_name=tool_name)
-                self.tui.render_tool_call_start(event.data.get('call_id',""), tool_kind, tool_name, event.data.get("arguments",{}))
-                # Give the UI thread a moment to paint the running tool card
-                # before potentially blocking tool execution begins.
-                await asyncio.sleep(0.03)
+                if event.type == AgentEventType.TOOL_CALL_START:
+                    self.ui.render_tool_call_start(
+                        name=event.data.get("name", "unknown"),
+                        arguments=event.data.get("arguments", {}),
+                    )
 
-            elif event.type == AgentEventType.TOOL_CALL_END:
+                elif event.type == AgentEventType.TOOL_CALL_END:
+                    self.ui.render_tool_call_end(
+                        name=event.data.get("name", "unknown"),
+                        success=bool(event.data.get("success", False)),
+                        error=event.data.get("error"),
+                    )
 
-                tool_name = event.data.get("name","unknown")
-                self._track_tool_end(tool_name, event.data.get("success", False))
-                tool_kind = self.get_tool_kind(tool_name=tool_name)
-                self.tui.render_tool_call_end(
-                    event.data.get("call_id",""),
-                    tool_kind,
-                    tool_name,
-                    event.data.get("success",False),
-                    event.data.get("error",""),
-                    event.data.get("display_output", event.data.get("output","")),
-                    event.data.get("metadata",{}),
-                    event.data.get("diff"),
-                    event.data.get("truncated",False),
-                    event.data.get("exit_code")
-                )
-            elif event.type == AgentEventType.PLAN:
-                steps = event.data.get("steps", [])
-                if steps:
-                    self._set_plan(steps)
-                else:
-                    self._clear_plan()
+                elif event.type == AgentEventType.TEXT_DELTA:
+                    content = event.data.get("content", "")
+                    self.ui.stream(content)
 
-                plan_phase_done = True
-            elif event.type == AgentEventType.TEXT_DELTA:
-                content = event.data.get("content", "")
+                elif event.type == AgentEventType.TEXT_COMPLETE:
+                    final_response = event.data.get("content", "")
+                    self.ui.end_stream()
 
-                # 🔥 Only switch AFTER planning/tools phase
-                if plan_phase_done and not final_started:
-                    final_started = True
+                elif event.type == AgentEventType.AGENT_ERROR:
+                    self._ui_note(f"error: {event.data.get('error', 'unknown error')}")
 
-                    if self.assistant_streaming:
-                        self.tui.end_assistance()
-                        self.assistant_streaming = False
-
-                    self.tui.start_final_answer()
-
-                # If final started → stream there
-                if final_started:
-                    self.tui.stream_final_answer(content)
-                else:
-                    # still thinking phase
-                    self.tui.stream_assistant_delta(content)
-
-
-            elif event.type == AgentEventType.TEXT_COMPLETE:
-                final_response = event.data.get("content", "")
-
-                if final_started:
-                    self.tui.end_final_answer()
-                elif self.assistant_streaming:
-                    self.tui.end_assistance()
-                    self.assistant_streaming = False
-            
-
-
-            elif event.type == AgentEventType.AGENT_ERROR:
-                error = event.data.get("error", "Unknown error")
-
-                if self.assistant_streaming:
-                    # overwrite the "Thinking..." block
-                    self.tui.stream_assistant_delta(f"❌ Error: {error}")
-                    self.tui.end_assistance()
-                    self.assistant_streaming = False
-                else:
-                    self._ui_note(f"Error: {error}") 
-            elif event.type == AgentEventType.AGENT_END:
-                usage_data = event.data.get("usage")
-                if self.assistant_streaming:
-                    self.tui.end_assistance()
-                    self.assistant_streaming = False
-        
-        # Calculate and display latency
-        if self._response_start_time:
-            self._response_latency = time.time() - self._response_start_time
-            latency_text = f"\n\n---\n⏱️  Response latency: {self._response_latency:.2f}s"
-            self.tui.stream_final_answer(latency_text)
-            
-            # Collect token usage if available
-            token_usage = None
-            if self.agent and self.agent.session and self.agent.session.context_manager:
-                token_usage = self.agent.session.context_manager.total_usage
-            
-            # Trace the response latency
-            turn_count = self.agent.session.turn_count if self.agent and self.agent.session else None
-            Trace.trace_response_latency(
-                latency=self._response_latency,
-                turn_count=turn_count,
-                token_usage=token_usage,
-                success=True
-            )
+        except Exception as exc:
+            self._ui_note(f"agent crashed: {exc}")
 
         return final_response
-    async def handle_command(self,command:str)->bool:
-        command = command.strip()
-        parts = command.split(maxsplit=1)
-        cmd_name = parts[0].lower()
-        cmd_args = parts[1] if len(parts) > 1 else ""
 
+    # ── Commands ───────────────────────────────────────────────────────────────
 
-        if cmd_name in ["/exit","/quit","/q"]:
+    async def handle_command(self, command: str) -> bool:
+        parts = command.strip().split(maxsplit=1)
+        cmd  = parts[0].lower()
+        args = parts[1].strip() if len(parts) > 1 else ""
+
+        # ── Navigation ────────────────────────────────────────────────────────
+
+        if cmd in ("/exit", "/quit", "/q"):
             self._persist_session()
-            self._ui_note("Exiting Tiaga...")
-            self.tui.shutdown()
+            self.ui.shutdown()
             return False
-        elif cmd_name == "/help":
-            self.tui.show_help()
-        elif cmd_name == "/clear":
-            self.agent.session.context_manager.clear() 
-            self._ui_note("Conversation history was cleared.")
-        elif cmd_name == "/config":
-            self._ui_note(
-                "Current Configuration\n"
-                f"Model: {self.config.model_name}\n"
-                f"Temperature: {self.config.temperature}\n"
-                f"Approval: {self.config.approval.value}\n"
-                f"Working Dir: {self.config.cwd}\n"
-                f"Max Turns: {self.config.max_turns}\n"
-                f"Hooks Enabled: {self.config.hooks_enabled}"
-            )
-        elif cmd_name == "/model":
-            if cmd_args:
-                self.config.model.name = cmd_args
-                update_config({"model": {"name": cmd_args}})
-                self._ui_note(f"Model changed to: {cmd_args}")
-            self._ui_note(f"Current model: {self.config.model_name}")
-        
-        elif cmd_name == "/api_key":
-            if cmd_args:
-                self.config.api_key_value = cmd_args
-                update_config({"api_key": cmd_args})
-                self._ui_note(f"API key updated successfully")
-            else:
-                self._ui_note(f"Current API key: {'*' * len(self.config.api_key_value) if self.config.api_key_value != 'set_api_key' else 'not set'}")
-        
-        elif cmd_name == "/base_url":
-            if cmd_args:
-                self.config.base_url_value = cmd_args
-                update_config({"base_url": cmd_args})
-                self._ui_note(f"Base URL updated to: {cmd_args}")
-            else:
-                self._ui_note(f"Current base URL: {self.config.base_url_value}")
 
-        elif cmd_name == "/approval":
-            if cmd_args:
-                try:
-                    approval = ApprovalPolicy(cmd_args)
-                    update_config({"approval": approval.value})
-                    self.config.approval = approval
-                    self._ui_note(f"Approval policy changed to: {cmd_args}")
-                except:
-                    self._ui_note(f"Incorrect approval policy: {cmd_args}")
-                    self._ui_note(f"Valid options: {', '.join(p for p in ApprovalPolicy)}")
+        elif cmd == "/help":
+            self._ui_note("\n".join([
+                "commands:",
+                "  /help",
+                "  /exit | /quit | /q",
+                "  /clear",
+                "  /config",
+                "  /stats",
+                "  /model   [name]",
+                "  /api_key [key]",
+                "  /base_url [url]",
+                "  /approval [on_request|on_failure|auto|auto_edit|never|yolo]",
+                "  /tools",
+                "  /mcp",
+                "  /save",
+                "  /title   <title>",
+                "  /sessions",
+                "  /resume   <session_id>",
+                "  /checkpoint",
+                "  /checkpoints <session_id>",
+                "  /restore  <checkpoint_id>",
+                "  /graph [DIR] [--format json|dot|summary|md|tree]",
+                "           [--output FILE] [--show-cycles] [--module PATH]",
+            ]))
+
+        # ── Session / history ─────────────────────────────────────────────────
+
+        elif cmd == "/clear":
+            if self.agent and self.agent.session:
+                self.agent.session.context_manager.clear()
+                self._ui_note("conversation cleared")
             else:
-                self._ui_note(f"Current approval: {self.config.approval.value}")
-        
-        elif cmd_name == "/stats":
-            stats = self.agent.session.get_stats()
-            lines = [f"{k}: {value}" for k, value in stats.items()]
-            self._ui_note("Stats\n" + "\n".join(lines))
+                self._ui_note("no active session")
 
-        elif cmd_name == "/tools":
-            tools = self.agent.session.tool_registry.get_tools()
-            tool_lines = [tool.name for tool in tools]
-            self._ui_note(f"Available tools ({len(tools)})\n" + "\n".join(tool_lines))
-
-        elif cmd_name == "/mcp":
-            mcp_servers = self.agent.session.tool_registry.mcp_tools
-            self._ui_note(f"MCP Servers ({len(mcp_servers)})")
-            for server in mcp_servers:
-                self._ui_note(f"• {server.name}")
-        elif cmd_name == "/save":
+        elif cmd == "/save":
             self._persist_session(announce=True)
-        elif cmd_name =="/sessions":
-            persistence_manager = PersistenceManager()
-            sessions = persistence_manager.list_sessions()
-            self._ui_note("Saved Session")
-            for s in sessions:
-              self._ui_note(
-                f"• {s['session_id']} "
-                f"updated: {s['updated_at']}  turns: {s['turn_count']}"
-                    )
-        elif cmd_name =="/checkpoints":
-            persistence_manager = PersistenceManager()
-            if not cmd_args:
-                self._ui_note("session args are required to list checkpoints")
-            else :
-                checkpoints = persistence_manager.list_checkpoints(cmd_args.strip())
-                self._ui_note("Saved Checkpoints")
-                for s in checkpoints:
-                    self._ui_note(
-                        s
-                            )
-        elif cmd_name == "/resume":
-            if not cmd_args:
-                self._ui_note("Usage: /resume <session_id>")
-            else :
-                persistence_manager = PersistenceManager()
 
-                snapshot = persistence_manager.load_session(cmd_args.strip())
-                if not snapshot:
-                    self._ui_note("Session does not exist")
-                else :
-                    session = Session(config=self.config)
-                    await session.initialize()
-                    session.created = snapshot.created_at
-                    session.session_id = snapshot.session_id
-                    session.updated = snapshot.updated_at
-                    session.turn_count = snapshot.turn_count
-                    session.context_manager.total_usage = snapshot.total_usage
-                    for msg in snapshot.messages:
-                        if msg.get("role") == "system":
-                            continue
-                        elif msg['role'] == "user":
-                            session.context_manager.add_user_message(msg.get("content",""))
-                        elif msg['role'] == "assistant":
-                            session.context_manager.add_assistant_message(msg.get("content",""),msg.get("tool_calls"))
-                        elif msg["role"] == "tool":
-                            session.context_manager.add_tool_message(msg.get("tool_call_id",""),msg.get("content",""))
-                    await self.agent.session.mcp_manager.shutdown()
-                    await self.agent.session.client.close_client()
-
-                    self.agent.session = session
-                    self._ui_note(f"Session resumed {session.session_id}")
-
-        elif cmd_name == "/checkpoint":
-            session_snapshot = self._build_session_snapshot()
-            if session_snapshot is None:
-                self._ui_note("No active session to checkpoint.")
+        elif cmd == "/title":
+            if not args:
+                # Show current title
+                current = getattr(self.agent.session, "title", "") if self.agent and self.agent.session else ""
+                self._ui_note(f"current title: {current!r}" if current else "no title set")
             else:
-                checkpoint_id = self.persistence_manager.save_checkpoint(session_snapshot)
-                self._ui_note(f"checkpoint saved {checkpoint_id}")
-        elif cmd_name == "/restore":
-            if not cmd_args:
-                self._ui_note("Usage: /restore <session_id>")
-            else :
-                persistence_manager = PersistenceManager()
+                if not self.agent or not self.agent.session:
+                    self._ui_note("no active session")
+                else:
+                    self.agent.session.title = args
+                    self.persistence_manager.update_session_title(
+                        self.agent.session.session_id, args
+                    )
+                    self._ui_note(f"title set: {args}")
 
-                snapshot = persistence_manager.load_checkpoint(cmd_args.strip())
+        elif cmd == "/sessions":
+            pm = PersistenceManager()
+            sessions = pm.list_sessions()
+            if not sessions:
+                self._ui_note("no saved sessions")
+            else:
+                self._ui_note("saved sessions")
+                for s in sessions:
+                    title_part = f"  [{s['title']}]" if s.get("title") else ""
+                    self._ui_note(
+                        f"  {s['session_id']}{title_part}  "
+                        f"updated: {s['updated_at']}  turns: {s['turn_count']}"
+                    )
+
+        elif cmd == "/resume":
+            if not args:
+                self._ui_note("usage: /resume <session_id>")
+            else:
+                pm = PersistenceManager()
+                snapshot = pm.load_session(args)
                 if not snapshot:
-                    self._ui_note("Session does not exist")
-                else :
-                    session = Session(config=self.config)
-                    await session.initialize()
-                    session.created = snapshot.created_at
-                    session.session_id = snapshot.session_id
-                    session.updated = snapshot.updated_at
-                    session.turn_count = snapshot.turn_count
-                    session.context_manager.total_usage = snapshot.total_usage
-                    for msg in snapshot.messages:
-                        if msg.get("role") == "system":
-                            continue
-                        elif msg['role'] == "user":
-                            session.context_manager.add_user_message(msg.get("content",""))
-                        elif msg['role'] == "assistant":
-                            session.context_manager.add_assistant_message(msg.get("content",""),msg.get("tool_calls"))
-                        elif msg["role"] == "tool":
-                            session.context_manager.add_tool_message(msg.get("tool_call_id",""),msg.get("content",""))
-                    await self.agent.session.mcp_manager.shutdown()
-                    await self.agent.session.client.close_client()
+                    self._ui_note(f"session not found: {args}")
+                else:
+                    session = await _restore_session_from_snapshot(self.agent, self.config, snapshot)
+                    session.title = snapshot.title          # ← restore title onto live session
+                    title_part = f"  ({snapshot.title})" if snapshot.title else ""
+                    self._ui_note(f"session resumed: {session.session_id}{title_part}")
 
-                    self.agent.session = session
-                    self._ui_note(f"Session resumed {session.session_id} and checkpoint {cmd_args}")
+        elif cmd == "/checkpoint":
+            snapshot = self._build_session_snapshot()
+            if snapshot is None:
+                self._ui_note("no active session to checkpoint")
+            else:
+                checkpoint_id = self.persistence_manager.save_checkpoint(snapshot)
+                self._ui_note(f"checkpoint saved: {checkpoint_id}")
 
+        elif cmd == "/checkpoints":
+            if not args:
+                self._ui_note("usage: /checkpoints <session_id>")
+            else:
+                pm = PersistenceManager()
+                checkpoints = pm.list_checkpoints(args)
+                if not checkpoints:
+                    self._ui_note("no checkpoints found")
+                else:
+                    self._ui_note("checkpoints")
+                    for cp in checkpoints:
+                        title_part = f"  [{cp['title']}]" if cp.get("title") else ""
+                        self._ui_note(
+                            f"  {cp['checkpoint_id']}{title_part}  "
+                            f"turns: {cp['turn_count']}  saved: {cp['created_at']}"
+                        )
 
-        else :
-            self._ui_note(f"Unknown command {cmd_name}")
+        elif cmd == "/restore":
+            if not args:
+                self._ui_note("usage: /restore <checkpoint_id>")
+            else:
+                pm = PersistenceManager()
+                snapshot = pm.load_checkpoint(args)
+                if not snapshot:
+                    self._ui_note(f"checkpoint not found: {args}")
+                else:
+                    session = await _restore_session_from_snapshot(self.agent, self.config, snapshot)
+                    session.title = snapshot.title          # ← restore title onto live session
+                    self._ui_note(f"session restored from checkpoint: {args}  →  {session.session_id}")
+
+        # ── Config ────────────────────────────────────────────────────────────
+
+        elif cmd == "/config":
+            self._ui_note("\n".join([
+                "configuration",
+                f"  model       {self.config.model_name}",
+                f"  temperature {self.config.temperature}",
+                f"  approval    {self.config.approval.value}",
+                f"  cwd         {self.config.cwd}",
+                f"  max turns   {self.config.max_turns}",
+                f"  hooks       {self.config.hooks_enabled}",
+            ]))
+
+        elif cmd == "/model":
+            if args:
+                self.config.model.name = args
+                update_config({"model": {"name": args}})
+                try:
+                    self.config = load_config(self.config.cwd, require_api=False)
+                    self._ui_note(f"model set: {args}")
+                except Exception as exc:
+                    self._ui_note(f"failed to reload config: {exc}")
+            else:
+                self._ui_note(f"current model: {self.config.model_name}")
+
+        elif cmd == "/api_key":
+            if args:
+                self.config.api_key_value = args
+                update_config({"api_key": args})
+                try:
+                    self.config = load_config(self.config.cwd, require_api=False)
+                    self._ui_note("api key updated")
+                except Exception as exc:
+                    self._ui_note(f"failed to reload config: {exc}")
+            else:
+                masked = (
+                    "*" * len(self.config.api_key_value)
+                    if self.config.api_key_value != "set_api_key"
+                    else "not set"
+                )
+                self._ui_note(f"current api key: {masked}")
+
+        elif cmd == "/base_url":
+            if args:
+                self.config.base_url_value = args
+                update_config({"base_url": args})
+                try:
+                    self.config = load_config(self.config.cwd, require_api=False)
+                    self._ui_note(f"base url set: {args}")
+                except Exception as exc:
+                    self._ui_note(f"failed to reload config: {exc}")
+            else:
+                self._ui_note(f"current base url: {self.config.base_url_value}")
+
+        elif cmd == "/approval":
+            if args:
+                try:
+                    approval = ApprovalPolicy(args)
+                    update_config({"approval": approval.value})
+                    try:
+                        self.config = load_config(self.config.cwd, require_api=False)
+                        self._ui_note(f"approval set: {args}")
+                    except Exception as exc:
+                        self._ui_note(f"failed to reload config: {exc}")
+                except ValueError:
+                    self._ui_note(f"invalid approval policy: {args}")
+                    self._ui_note(f"valid options: {', '.join(p.value for p in ApprovalPolicy)}")
+            else:
+                self._ui_note(f"current approval: {self.config.approval.value}")
+
+        # ── Info ──────────────────────────────────────────────────────────────
+
+        elif cmd == "/stats":
+            if self.agent and self.agent.session:
+                stats = self.agent.session.get_stats()
+                lines = ["stats"] + [f"  {k}: {v}" for k, v in stats.items()]
+                self._ui_note("\n".join(lines))
+            else:
+                self._ui_note("no active session")
+
+        elif cmd == "/tools":
+            if self.agent and self.agent.session:
+                tools = self.agent.session.tool_registry.get_tools()
+                lines = [f"available tools ({len(tools)})"] + [f"  {t.name}" for t in tools]
+                self._ui_note("\n".join(lines))
+            else:
+                self._ui_note("no active session")
+
+        elif cmd == "/mcp":
+            if self.agent and self.agent.session:
+                servers = self.agent.session.tool_registry.mcp_tools
+                lines = [f"mcp servers ({len(servers)})"] + [f"  {s.name}" for s in servers]
+                self._ui_note("\n".join(lines))
+            else:
+                self._ui_note("no active session")
+
+        # ── Graph ─────────────────────────────────────────────────────────────
+
+        elif cmd == "/graph":
+            directory   = "."
+            fmt         = "summary"
+            output: str | None = None
+            show_cycles = False
+            module: str | None = None
+
+            try:
+                tokens = shlex.split(args)
+            except ValueError as exc:
+                self._ui_note(f"invalid arguments: {exc}")
+                return True
+
+            i = 0
+            while i < len(tokens):
+                tok = tokens[i]
+                if tok in ("--format", "-f"):
+                    if i + 1 >= len(tokens):
+                        self._ui_note("--format requires a value")
+                        return True
+                    fmt = tokens[i + 1]; i += 2
+                elif tok in ("--output", "-o"):
+                    if i + 1 >= len(tokens):
+                        self._ui_note("--output requires a value")
+                        return True
+                    output = tokens[i + 1]; i += 2
+                elif tok == "--show-cycles":
+                    show_cycles = True; i += 1
+                elif tok in ("--module", "-m"):
+                    if i + 1 >= len(tokens):
+                        self._ui_note("--module requires a value")
+                        return True
+                    module = tokens[i + 1]; i += 2
+                elif tok.startswith("-"):
+                    self._ui_note(f"unknown option: {tok}")
+                    return True
+                elif directory == ".":
+                    directory = tok; i += 1
+                else:
+                    self._ui_note(f"unexpected argument: {tok}")
+                    return True
+
+            try:
+                output_path, size_bytes = _run_graph(
+                    directory=directory,
+                    format=fmt,
+                    output=output,
+                    show_cycles=show_cycles,
+                    module=module,
+                    cwd=self.config.cwd,
+                )
+                self._ui_note(f"graph saved: {output_path}  ({size_bytes} bytes)")
+            except Exception as exc:
+                self._ui_note(f"error generating graph: {exc}")
+                if os.getenv("TIAGA_DEBUG"):
+                    import traceback
+                    traceback.print_exc()
+
+        else:
+            self._ui_note(f"unknown command: {cmd}  (try /help)")
+
         return True
 
-                
-               
+
+# ── Graph runner ───────────────────────────────────────────────────────────────
+
+def _run_graph(
+    directory: str,
+    format: str = "summary",
+    output: str | None = None,
+    show_cycles: bool = False,
+    module: str | None = None,
+    cwd: Path | None = None,
+) -> tuple[str, int]:
+    base_dir   = (cwd or Path.cwd()).resolve()
+    target_dir = (base_dir / directory).resolve()
+
+    if not target_dir.exists():
+        raise FileNotFoundError(f"directory not found: {target_dir}")
+
+    builder = DependencyGraphBuilder(root_path=str(target_dir))
+    builder.analyze_directory()
+    builder.find_cycles()
+
+    if module:
+        builder.filter_module(module)
+
+    formatters = {
+        "summary": builder.get_summary,
+        "json":    builder.to_json,
+        "dot":     builder.to_dot,
+        "md":      builder.to_markdown,
+        "tree":    builder.to_tree,
+    }
+    if format not in formatters:
+        raise ValueError(f"unknown format '{format}'. valid: {', '.join(formatters)}")
+
+    content = formatters[format]()
+
+    if output:
+        out_path = Path(output)
+    else:
+        graphs_dir = base_dir / "project_graph"
+        graphs_dir.mkdir(parents=True, exist_ok=True)
+        ext = {"json": "json", "dot": "dot", "md": "md", "tree": "txt"}.get(format, "txt")
+        out_path = graphs_dir / f"graph.{ext}"
+
+    out_path.write_text(content if isinstance(content, str) else str(content))
+    return str(out_path), out_path.stat().st_size
 
 
+# ── Entry point ────────────────────────────────────────────────────────────────
 
-@click.command()
-@click.argument("prompt",required = False)
-@click.option("--cwd","-c",type=click.Path(exists=True,file_okay=False,path_type=Path),help="current working dir")
-def main(prompt:str|None = None,cwd:Path|None = None):
+@click.group(
+    invoke_without_command=True,
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--cwd", "-c", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.pass_context
+def main(ctx: click.Context, cwd: Path | None = None):
+    """Tiaga — AI coding assistant."""
+    if ctx.invoked_subcommand:
+        return
 
-
+    prompt = " ".join(ctx.args).strip() if getattr(ctx, "args", None) else None
+    if not prompt:
+        prompt = None
 
     try:
-        config = load_config(cwd)
-    except ConfigError as e:
-        console.log(f"\n[error]Config error:[/error] {e}")
+        config = load_config(cwd, require_api=bool(prompt))
+    except ConfigError as exc:
+        click.echo(f"config error: {exc}", err=True)
         raise SystemExit(1)
-    except Exception as e :
-        console.log(f"\n[error]Unexpected startup error:[/error] {e}")
+    except Exception as exc:
+        click.echo(f"startup error: {exc}", err=True)
         raise SystemExit(1)
 
     cli = CLI(config)
+
     if prompt:
         result = asyncio.run(cli.run_single(prompt))
         if result is None:
             raise SystemExit(1)
     else:
         asyncio.run(cli.run_interactive())
-
 
 
 if __name__ == "__main__":

@@ -1,49 +1,18 @@
-from typing import Any
+"""Backward-compat shim (typo'd module name).
 
+Prefer importing from `tiaga.utils.errors`.
+"""
 
-class AgentError(Exception):
-    def __init__(
-        self,
-        message: str,
-        details: dict[str, Any] | None = None,
-        cause: Exception | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.details = details or {}
-        self.cause = cause
+from __future__ import annotations
 
-    def __str__(self) -> str:
-        base = self.message
-        if self.details:
-            detail_str = ", ".join(f"{k}={v}" for k, v in self.details.items())
-            base = f"{base} ({detail_str})"
-        if self.cause:
-            base = f"{base} [caused by: {self.cause}]"
-        return base
+import warnings
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.__class__.__name__,
-            "message": self.message,
-            "details": self.details,
-            "cause": str(self.cause) if self.cause else None,
-        }
+from .errors import AgentError, ConfigError
 
+warnings.warn(
+    "`tiaga.utils.erors` is deprecated; import from `tiaga.utils.errors` instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-class ConfigError(AgentError):
-    def __init__(
-        self,
-        message: str,
-        config_key: str | None = None,
-        config_file: str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        details = kwargs.pop("details", {}) or {}
-        if config_key:
-            details["config_key"] = config_key
-        if config_file:
-            details["config_file"] = config_file
-        super().__init__(message, details=details, **kwargs)
-        self.config_key = config_key
-        self.config_file = config_file
+__all__ = ["AgentError", "ConfigError"]

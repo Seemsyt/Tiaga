@@ -15,6 +15,8 @@ def get_system_prompt(
     parts.append(_get_identity_section())
     # Environment
     parts.append(_get_environment_section(config))
+    # Time & date handling
+    parts.append(_get_time_guidelines_section())
 
     if tools:
         parts.append(_get_tool_guidelines_section(tools))
@@ -59,17 +61,26 @@ You are pair programming with the user to help them accomplish their goals. Be p
 
 def _get_environment_section(config: Config) -> str:
     """Generate the environment section."""
-    now = datetime.now()
+    now = datetime.now().astimezone()
     os_info = f"{platform.system()} {platform.release()}"
 
     return f"""# Environment
 
 - **Current Date**: {now.strftime("%A, %B %d, %Y")}
+- **Current Year**: {now.year}
 - **Operating System**: {os_info}
 - **Working Directory**: {config.cwd}
 - **Shell**: {_get_shell_info()}
 
-The user has granted you access to run tools in service of their request. Use them when needed."""
+Use the current date/year above to interpret relative time phrases like "today" and "this year". The user has granted you access to run tools in service of their request. Use them when needed."""
+
+
+def _get_time_guidelines_section() -> str:
+    return """# Time & Date Guidelines
+
+- Treat "latest", "today", "this week", and "this year" as relative to the CURRENT DATE/YEAR in the Environment section.
+- When using `web_search` for "latest" news, prefer narrowing via the tool's `time_limit` and do NOT hardcode a past year in the query unless the user explicitly asked for that year.
+- If a user asks for a specific year (e.g. "news of 2024"), then include that year in the query."""
 
 
 def _get_shell_info() -> str:
@@ -270,6 +281,7 @@ You have access to the following tools to accomplish your tasks:
    - Use `grep` to find code by content
    - Use `glob` to find files by name pattern
    - Use `list_dir` to explore directory structure
+   - For `web_search` about "latest" news, prefer `time_limit` (d/w/m) and avoid hardcoding years unless the user specifies one
 
 3. **Shell Commands**:
    - Use `shell` for running commands, tests, builds

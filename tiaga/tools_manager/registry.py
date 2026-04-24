@@ -55,6 +55,7 @@ class ToolRegistry:
         approval: ApprovalManager | None = None,
         hook_system: HookSystem | None = None,
         trace_system: Trace | None = None,
+        parent_client: Any = None,
     ):
         return await self.executor.invoke(
             name=name,
@@ -64,6 +65,7 @@ class ToolRegistry:
             approval=approval,
             hook_system=hook_system,
             trace_system=trace_system,
+            parent_client=parent_client,
         )
 
 

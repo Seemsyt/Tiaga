@@ -15,15 +15,17 @@ from tiaga.tools_manager.discovery import ToolDiscoveryManger
 from tiaga.tools_manager.mcp.mcp_manager import MCPManager
 from tiaga.tools_manager.registry import create_default_registry
 from tiaga.tracing.trace import Trace
+from tiaga.analysis.project_graph_context import build_project_graph_context
 
 #session
 
 
 
 class Session:
-    def __init__(self,config:Config):
+    def __init__(self,config:Config, parent_client:LLM_client|None = None):
         self.config = config
-        self.client = LLM_client(config)
+        # Reuse parent's LLM client if available (for subagents) to avoid connection issues
+        self.client = parent_client if parent_client else LLM_client(config)
         self.tool_registry = create_default_registry(config)
         self.tool_discovery_manager = ToolDiscoveryManger(self.config,self.tool_registry)
         self.mcp_manager = MCPManager(self.config)
@@ -36,8 +38,8 @@ class Session:
         self.chat_compactor = ChatCompaction(self.client)
         self.created = datetime.now()
         self.updated = datetime.now()
-        self._turn_count = 0 
-        
+        self._turn_count = 0
+        self.project_graph_context: str | None = None
 
 
     @property
@@ -53,6 +55,18 @@ class Session:
         self.tool_discovery_manager.discover_all()
 
         self.context_manager = ContextManager(self.config,memory=self._load_memory(),tools=self.tool_registry.get_tools())
+        try:
+            self.project_graph_context = build_project_graph_context(self.config.cwd)
+            if self.project_graph_context:
+                # Make the graph available to the executor (LLM step) via system prompt.
+                self.context_manager.system_prompt = (
+                    (self.context_manager.system_prompt or "")
+                    + "\n\n"
+                    + self.project_graph_context
+                )
+        except Exception:
+            # Graph is best-effort context; never block session startup.
+            self.project_graph_context = None
 
     
 

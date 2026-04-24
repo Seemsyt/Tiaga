@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-print("hello world")
 import os
 import sys
 import json

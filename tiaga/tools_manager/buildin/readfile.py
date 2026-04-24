@@ -5,7 +5,7 @@ from tiaga.context.text import truncate_text
 class ReadFileParams(BaseModel):
     path:str = Field(...,description="This the path to the file which can be read(it can be related to working directory  path or absolute path)(this is required)")
 
-    offset:int = Field(...,ge=1,description="This the line number from where you should start reading file(1-based and required)")
+    offset:int = Field(default=1,ge=1,description="This the line number from where you should start reading file(1-based, defaults to 1)")
     limit:int|None = Field(None,ge=1,description="maximum line you want to read from file . If not specified read entire file")
 
 class ReadFileTool(Tool):

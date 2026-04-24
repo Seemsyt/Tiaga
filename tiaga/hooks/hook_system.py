@@ -6,6 +6,8 @@ import tempfile
 from typing import Any
 
 import json
+from datetime import datetime
+import time
 
 from tiaga.config.config import Config, HookConfig, HookTrigger
 from tiaga.tools_manager.base import ToolResult
@@ -61,6 +63,11 @@ class HookSystem:
             env = os.environ.copy()
             env["AI_AGENT_TRIGGER"] = trigger.value
             env["AI_AGENT_CWD"] = str(self.config.cwd)
+            now = datetime.now().astimezone()
+            env["AI_AGENT_DATE"] = now.strftime("%Y-%m-%d")
+            env["AI_AGENT_TIME"] = now.strftime("%H:%M:%S")
+            env["AI_AGENT_YEAR"] = str(now.year)
+            env["AI_AGENT_TIMEZONE"] = (time.tzname[0] if time.tzname else "local")
 
             if tool_name:
                 env["AI_AGENT_TOOL_NAME"] = tool_name

@@ -160,13 +160,14 @@ class Config(BaseModel):
         return os.environ.get("OPENAI_API_KEY") or self.openai_api_key_value
 
 
-    def validate_config(self) -> list[str]:
+    def validate_config(self, require_api: bool = True) -> list[str]:
         errors:list[str] = []
          
-        if not self.api_key:
-            errors.append('NO API key was found, set TIAGA_API_KEY in environment variable')
-        if not self.base_url:
-            errors.append("NO BASE URL was found, Set TIAGA_BASE_URL in environment variable")
+        if require_api:
+            if not self.api_key:
+                errors.append('NO API key was found, set TIAGA_API_KEY in environment variable')
+            if not self.base_url:
+                errors.append("NO BASE URL was found, Set TIAGA_BASE_URL in environment variable")
         if not self.cwd.exists():
             errors.append(f"Working directory does not exists at {self.cwd}")
         return errors

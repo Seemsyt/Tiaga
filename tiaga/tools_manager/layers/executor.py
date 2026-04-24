@@ -25,6 +25,7 @@ class ToolExecutor:
         approval: ApprovalManager | None = None,
         hook_system: HookSystem | None = None,
         trace_system: Trace | None = None,
+        parent_client: Any = None,
     ) -> ToolResult:
         tool = catalog.get(name)
         if tool is None:
@@ -42,7 +43,7 @@ class ToolExecutor:
 
         
 
-        invocation = ToolInvocation(params, cwd)
+        invocation = ToolInvocation(params, cwd, parent_client=parent_client)
 
         if approval:
             confirmation = await tool.get_confirmation(invocation)

@@ -55,7 +55,15 @@ class Orchestrator:
         self.runtime.context_manager.add_user_message(message)
 
         tool_names = [tool.name for tool in self.runtime.tool_registry.get_tools()]
-        planned_steps = await self.planner.create_plan(message, tool_names + ["llm"])
+        tool_schemas = self.runtime.tool_registry.get_schemas()
+        
+        planned_steps = await self.planner.create_plan(
+            message, 
+            tool_names + ["llm"],
+            tool_schemas=tool_schemas,
+            max_retries=2,
+            project_context=self.runtime.project_graph_context,
+        )
         plan = self._normalize_plan(planned_steps, set(tool_names))
         plan_items = [
             {"step": step.step, "task": step.task, "tool": step.tool, "input": step.input}
