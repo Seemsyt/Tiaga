@@ -1,6 +1,7 @@
 import asyncio
 import fnmatch
 import os
+import re
 from pathlib import Path
 
 
@@ -11,63 +12,60 @@ from pydantic import BaseModel,Field
 from tiaga.tools_manager.base import Tool, Tool_kind, ToolConfirmation, ToolInvocation, ToolResult
 
 
-BLOCKED_PATTERNS = {
+BLOCKED_PATTERNS = [
     # File destruction
-    "rm -rf",
-    "rm -r /",
-    "unlink",
-    "shred",
-    "wipe",
+    r'\brm\s+-r[fF]?\b',
+    r'\bunlink\b',
+    r'\bshred\b',
+    r'\bwipe\b',
     
     # Disk / filesystem damage
-    "dd ",
-    "mkfs",
-    "fsck",
-    "fdisk",
-    "parted",
-    "mount",
-    "umount",
+    r'\bdd\b',
+    r'\bmkfs\b',
+    r'\bfsck\b',
+    r'\bfdisk\b',
+    r'\bparted\b',
+    r'\bmount\b',
+    r'\bumount\b',
     
     # Permission abuse
-    "chmod 777",
-    "chmod -R 777",
-    "chown",
+    r'\bchmod\s+777\b',
+    r'\bchmod\s+-R\s+777\b',
+    r'\bchown\b',
     
     # System control
-    "shutdown",
-    "reboot",
-    "halt",
-    "poweroff",
-    "init 0",
-    "init 6",
+    r'\bshutdown\b',
+    r'\breboot\b',
+    r'\bhalt\b',
+    r'\bpoweroff\b',
+    r'\binit\s+[06]\b',
     
     # Fork bomb
-    ":(){",
+    r':\s*\(\s*\)\s*\{',
     
     # Privilege escalation
-    "sudo",
-    "su ",
+    r'\bsudo\b',
+    r'\bsu\b',
     
     # Network abuse / remote execution
-    "curl ",
-    "wget ",
-    "nc ",
-    "netcat",
-    "ssh ",
+    r'\bcurl\b',
+    r'\bwget\b',
+    r'\bnc\b',
+    r'\bnetcat\b',
+    r'\bssh\b',
     
     # Process killing
-    "kill -9",
-    "pkill",
-    "killall",
+    r'\bkill\s+-9\b',
+    r'\bpkill\b',
+    r'\bkillall\b',
     
     # Dangerous writes
-    "> /dev/sda",
-    "> /dev/null",
+    r'>\s*/dev/sda',
+    r'>\s*/dev/null',
     
     # Environment damage
-    "export PATH=",
-    "rm -rf /", "rm -rf ~", "rm -rf /*", "dd if=/dev/zero", "dd if=/dev/random", "mkfs", "fdisk", "parted", ":(){ :|:& };:",   "chmod 777 /", "chmod -R 777", "shutdown", "reboot", "halt", "poweroff", "init 0", "init 6",
-}
+    r'\bexport\s+PATH=',
+]
 
 
 class ShellParams(BaseModel):
@@ -103,16 +101,15 @@ class ShellTool(Tool):
     async def get_confirmation(self, invocation:ToolInvocation)->ToolConfirmation|None:
         params = ShellParams(**invocation.params)
 
-        for blocked in BLOCKED_PATTERNS:
-            if blocked in params.command:
+        for pattern in BLOCKED_PATTERNS:
+            if re.search(pattern, params.command, re.IGNORECASE):
                 return ToolConfirmation(
                     tool_name=self.name,
                     params=invocation.params,
-                    description=f"Excute (Blocked)command {params.command}",
+                    description=f"Execute (Blocked) command {params.command}",
                     command=params.command,
-                    is_dangerous= True,
-
-        )
+                    is_dangerous=True,
+                )
         return ToolConfirmation(
             tool_name=self.name,
             params=invocation.params,
@@ -126,11 +123,11 @@ class ShellTool(Tool):
         params = ShellParams(**invocation.params)
 
 
-        command = params.command.lower().strip()
-        for blocked in BLOCKED_PATTERNS:
-            if blocked in command:
+        command = params.command.strip()
+        for pattern in BLOCKED_PATTERNS:
+            if re.search(pattern, command, re.IGNORECASE):
                 return ToolResult.error_result(
-                    f"Command blocked for the safty :{params.command}",
+                    f"Command blocked for safety: {params.command}",
                     metadata={
                         "blocked":True
                     }
@@ -159,6 +156,19 @@ class ShellTool(Tool):
                                                        start_new_session=True)
         try:
             stdout_data,stderr_data = await asyncio.wait_for(process.communicate(),timeout=params.timeout)
+            stdout = stdout_data.decode("utf-8",errors="replace")
+            stderr = stderr_data.decode("utf-8",errors="replace")
+            exit_code  = process.returncode
+            output = ""
+            if stdout.strip():
+                output += stdout.rstrip()
+
+            if stderr.strip():
+                output += "\n-----stderror-----\n"
+                output += stderr.rstrip()
+
+            if exit_code != 0:
+                output +=f"\nexit code  {exit_code}"
         except asyncio.TimeoutError as e :
             if sys.platform != "win32":
                 try:
@@ -176,20 +186,7 @@ class ShellTool(Tool):
             else:
                 process.kill()
                 await process.wait()
-                raise      
-        stdout = stdout_data.decode("utf-8",errors="replace")
-        stderr = stderr_data.decode("utf-8",errors="replace")
-        exit_code  = process.returncode
-        output = ""
-        if stdout.strip():
-            output += stdout.rstrip()
-
-        if stderr.strip():
-            output += "\n-----stderror-----\n"
-            output += stderr.rstrip()
-
-        if exit_code != 0:
-            output +=f"\nexit code  {exit_code}"
+                raise
 
         display_output = None
         is_truncated = False

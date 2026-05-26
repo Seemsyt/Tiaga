@@ -1,5 +1,6 @@
 
 from typing import Any
+import time
 from tiaga.client.response import TokenUsage
 from tiaga.config.config import Config
 from tiaga.tools_manager.base import Tool
@@ -8,7 +9,7 @@ from .text import calculate_token
 
 from .prompts import get_system_prompt
 from dataclasses import dataclass, field
-
+#context.py
 @dataclass
 class MessageItem:
     
@@ -99,6 +100,23 @@ class ContextManager:
         messages = []
         if self.system_prompt:
             messages.append({"role":"system","content":self.system_prompt})
+            # Keep a fresh "today" anchor per request so relative time like
+            # "this year" stays grounded even in long-running sessions.
+            now = datetime.now().astimezone()
+            tz = time.tzname[0] if time.tzname else "local"
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "# Runtime Context\n\n"
+                        f"- Current Date: {now.strftime('%A, %B %d, %Y')}\n"
+                        f"- Current Time: {now.strftime('%H:%M:%S')} ({tz})\n"
+                        f"- Current Year: {now.year}\n"
+                        "Use these values to interpret relative time words like "
+                        '"today", "this week", and "this year".'
+                    ),
+                }
+            )
         for item in self.messages:
             if isinstance(item, MessageItem):
                 messages.append(item.to_dict())
@@ -209,7 +227,6 @@ class ContextManager:
         self.messages = []
 
         
-
 
 
 

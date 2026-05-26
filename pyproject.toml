@@ -1,6 +1,6 @@
 [project]
 name = "tiaga"
-version = "0.1.48"
+version = "0.2.32"
 authors = [{name = "Seems kushwaha"}]
 description = "A CLI tool"
 readme = "README.md"
@@ -14,16 +14,53 @@ dependencies = [
     "platformdirs>=4.3.8",
     "pydantic>=2.12.5",
     "python-dotenv>=1.1.1",
-    "rich>=14.1.0",
     "tiktoken>=0.12.0",
     "tomli>=2.4.1",
     "youtube-transcript-api>=1.2.4",
     "ddgs>=9.13.0",
     "fastmcp>=3.2.3",
-    "textual>=0.86.1",
+    "rich>=14.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.12.0",
+]
+# Optional LLM providers
+anthropic = ["anthropic>=0.30.0"]
+gemini = ["google-generativeai>=0.8.0"]
+all-providers = ["anthropic>=0.30.0", "google-generativeai>=0.8.0"]
+# Multi-language support (optional, falls back to regex-based matching)
+multi-lang = [
+    "tree-sitter>=0.21.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-java>=0.21.0",
+    "tree-sitter-go>=0.21.0",
+    "tree-sitter-rust>=0.21.0",
+    "tree-sitter-cpp>=0.21.0",
 ]
 [project.scripts]
 tiaga = "tiaga.main:main"
+tiaga-graph = "tiaga.main:graph_cli"
+
+[tool.setuptools.packages.find]
+# Avoid accidentally packaging generated artifacts like ./project_graph.
+include = ["tiaga*"]
+exclude = ["project_graph*"]
+
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".venv", "dist", "project_graph", "tiaga.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tiaga"]

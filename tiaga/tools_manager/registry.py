@@ -1,138 +1,79 @@
-import logging
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any
+
 from tiaga.config.config import Config
 from tiaga.hooks.hook_system import HookSystem
-from tiaga.safty.approval import ApprovalContext, ApprovalDecision, ApprovalManager
 from tiaga.tools_manager.buildin import get_all_builtin_tool
-from tiaga.tools_manager.base import Tool, ToolResult,ToolInvocation
+from tiaga.tools_manager.layers.catalog import ToolCatalog
+from tiaga.tools_manager.layers.executor import ToolExecutor
 from tiaga.tools_manager.subagent import SubagentTool, get_default_subagent_definition
+from tiaga.tracing.trace import Trace
+from tiaga.safety.approval import ApprovalManager
 
-logger  = logging.getLogger(__name__)
 
 class ToolRegistry:
-    def __init__(self,config:Config):
-        self._tools:dict[str,Tool] = {}
-        self._mcp_tools:dict[str,Tool] = {}
-        self.config = config
+    """
+    Compatibility facade:
+    - catalog (data): registration and lookup
+    - executor (control): invoke pipeline with approval/hooks/trace
+    """
 
+    def __init__(self, config: Config):
+        self.config = config
+        self.catalog = ToolCatalog(config=config)
+        self.executor = ToolExecutor()
 
     @property
-    def getmcp(self)->list[Tool]:
-        tools = []
-        for tool in self._mcp_tools.values():
-            tools.append(tool)
-        return tools
-    
+    def mcp_tools(self):
+        return self.catalog.mcp_tools
 
+    def register(self, tool):
+        self.catalog.register(tool)
 
-    def register(self,tool:Tool):
-        if tool.name in self._tools :
-            logger.warning(f"Overwriting existing tool{tool.name}")
-        self._tools[tool.name] = tool
-        logger.debug(f"register{tool.name}")
+    def register_mcp(self, tool):
+        self.catalog.register_mcp(tool)
 
-    def register_mcp(self,tool:Tool):
+    def unregister(self, name):
+        return self.catalog.unregister(name)
 
-        self._mcp_tools[tool.name] = tool
-
-        logger.debug(f"register{tool.name}")
-
-
-    def unregister(self,name):
-        if name in self._tools:
-            del self._tools[name]
-            return True
-        return False
     def get_tools(self):
-        tools:list[Tool] = []
-        for tool in self._tools.values():
-            tools.append(tool)
+        return self.catalog.get_tools()
 
-        for tool in self._mcp_tools.values():
-            tools.append(tool)
-        if self.config.allowed_tools:
-            allowed_tool = set(self.config.allowed_tools)
-            tools = [t for t in tools if t.name in allowed_tool]
- 
+    def get(self, name: str):
+        return self.catalog.get(name)
 
-        return tools
-    
+    def get_schemas(self):
+        return self.catalog.get_schemas()
 
-    def get(self,name:str)->Tool:
-        if name in self._tools:
-            return self._tools.get(name)
-        elif name in self._mcp_tools:
-            return self._mcp_tools[name]
-        
+    async def invoke(
+        self,
+        name: str,
+        params: dict[str, Any],
+        cwd: Path,
+        approval: ApprovalManager | None = None,
+        hook_system: HookSystem | None = None,
+        trace_system: Trace | None = None,
+        parent_client: Any = None,
+    ):
+        return await self.executor.invoke(
+            name=name,
+            params=params,
+            cwd=cwd,
+            catalog=self.catalog,
+            approval=approval,
+            hook_system=hook_system,
+            trace_system=trace_system,
+            parent_client=parent_client,
+        )
 
-    def get_schemas(self): 
-        return [tool.to_open_ai_schema() for tool in self.get_tools()]
-    
 
-
-    async def invoke(self,name:str,params:dict[str,Any],cwd,approval:ApprovalManager|None = None,hook_system:HookSystem|None = None):
-        tool = self.get(name)
-        if tool is None:
-            result = ToolResult.error_result(f"tool does not exists {name}")
-            await hook_system.trigger_after_tool(name,params,result)
-            return result
-        validation_error =  tool.validate_params(params)
-        if validation_error :
-            result = ToolResult.error_result(f"Invalid parameters{validation_error}")
-            await hook_system.trigger_after_tool(name,params,result)
-            return result
-        await hook_system.trigger_before_tool(name,params)
-        invocation  = ToolInvocation( params,
-            cwd,)
-        
-        if approval:
-            confirmation = await tool.get_confirmation(invocation)
-            if confirmation:
-                context = ApprovalContext(
-                    tool_name=name,
-                    params=params,
-                    is_mutating=tool.is_mutating(params),
-                    affected_paths=confirmation.affected_paths,
-                    command=confirmation.command,
-                    is_dangerous=confirmation.is_dangerous,
-                )
-                decision = await approval.check_approval(context=context)
-                if decision == ApprovalDecision.REJECTED:
-                    result =  ToolResult.error_result(
-                        f"Opration was rejected by safer policy"
-                    )
-                    await hook_system.trigger_after_tool(name,params,result)
-                    return result
-
-                elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
-                    approved =  approval.request_confirmation(confirmation)
-                    if not approved :
-                        result= ToolResult.error_result(
-                        f"Opration was rejected by safer policy"
-                    )
-                        await hook_system.trigger_after_tool(name,params,result)
-                        return result
-
-        try:
-            result = await tool.execute(invocation)
-            return result
-        except Exception as e :
-            logger.exception(f"Tool {name}raise an {e}")
-            result =  ToolResult.error_result(
-                f"internal error {str(e)} for {name}"
-            )
-            await hook_system.trigger_after_tool(name,params,result)
-            return result
-def create_default_registry(config:Config) -> ToolRegistry:
+def create_default_registry(config: Config) -> ToolRegistry:
     registry = ToolRegistry(config=config)
     for tool_cls in get_all_builtin_tool():
         registry.register(tool_cls(config))
 
     for sub_agent in get_default_subagent_definition():
-        registry.register(SubagentTool(config,sub_agent))
-
+        registry.register(SubagentTool(config, sub_agent))
     return registry
-
-
-
-        

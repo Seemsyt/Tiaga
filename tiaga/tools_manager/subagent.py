@@ -51,7 +51,10 @@ class SubagentTool(Tool):
         if self.definition.allowed_tools:
             config_dict['allowed_tools'] = self.definition.allowed_tools
 
-        sub_agent = Config(**config_dict)
+        sub_agent_config = Config(**config_dict)
+        
+        # Reuse parent LLM client if available to avoid connection issues from multiple async clients
+        parent_client = invocation.parent_client
 
         prompt = f"""You are a specialized sub-agent with a specific task to complete.
 
@@ -69,9 +72,10 @@ class SubagentTool(Tool):
         tool_call_list = []
         final_response = None
         error_output = None
+        error = None
         terminate_response = 'hit-goal'
         try:
-            async with Agent(sub_agent) as agent:
+            async with Agent(sub_agent_config, parent_client=parent_client) as agent:
                 deadline = asyncio.get_event_loop().time() + self.definition.timeout
 
                 async for event in agent.run(prompt):

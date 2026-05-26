@@ -1,10 +1,18 @@
 from pathlib import Path
 from typing import Any
-from tomli import TOMLDecodeError,load
+try:
+    # Python 3.11+ ships `tomllib` in the standard library.
+    import tomllib as _toml
+except ModuleNotFoundError:  # pragma: no cover
+    # Fallback for older Python environments.
+    from tomli import TOMLDecodeError, load  # type: ignore
+else:
+    TOMLDecodeError = _toml.TOMLDecodeError  # type: ignore[attr-defined]
+    load = _toml.load  # type: ignore[assignment]
 from .config import Config
 from platformdirs import user_config_dir
 import logging
-from tiaga.utils.erors import ConfigError
+from tiaga.utils.errors import ConfigError
 logger = logging.getLogger(__name__)
 CONFIG_FILE_NAME =  'config.toml'
 AGENT_MD_FILE = "AGENT.md"
@@ -119,7 +127,7 @@ def update_config(values:dict[str,Any],cwd:Path|None = None)->Path:
         return _update_config_at_path(project_path,values)
 
 
-def load_config(cwd:Path|None)-> Config:
+def load_config(cwd:Path|None, require_api: bool = True)-> Config:
     cwd = cwd or Path.cwd()
 
     system_path = get_system_config_path()
@@ -160,7 +168,7 @@ def load_config(cwd:Path|None)-> Config:
         config = Config(**config_dicts)
     except Exception as e:
         raise ConfigError(f"Invalid configuration {e}") from e
-    errors = config.validate_config()
+    errors = config.validate_config(require_api=require_api)
     if errors:
         raise ConfigError("Invalid configuration", details={"errors": errors})
     return config

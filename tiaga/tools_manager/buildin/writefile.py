@@ -30,14 +30,14 @@ class WriteFileTool(Tool) :
         is_new_file = not path.exists()
         action = "created" if is_new_file else "updated"
 
-        old_content = " "
+        old_content = ""
         if not is_new_file:
             try:
                 old_content = path.read_text(encoding='utf-8')
             except:
                 pass
 
-        diff = FileDiff(path,old_content=old_content,new_content=params.content,is_new_file=is_new_file)
+        diff = FileDiff(path=str(path), old_content=old_content, new_content=params.content, is_new_file=is_new_file)
         return ToolConfirmation(
             tool_name=self.name,
             params=invocation.params,
@@ -70,7 +70,7 @@ class WriteFileTool(Tool) :
 
 
             return ToolResult.success_result(f"{action} {path} {lines} lines",
-                                            diff=FileDiff(path=path,old_content=old_content,new_content=params.content,is_new_file=is_new_file),
+                                            diff=FileDiff(path=str(path), old_content=old_content, new_content=params.content, is_new_file=is_new_file),
                                             metadata={
                                                "path": str(path),
                                                 "is_new_file":is_new_file,
